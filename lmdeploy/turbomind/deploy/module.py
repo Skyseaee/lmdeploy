@@ -1,12 +1,15 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 from abc import ABC, abstractmethod
 from functools import partial
+from typing import List
 
 import torch
+from aipinfer import logger
 
 from .parameter import get_params
 from .source_model.base import BaseReader
 from .target_model.base import BaseOutputModel
+from .parameter import QuantWeightFP8
 
 
 def permute_v2(x: torch.Tensor, size_per_head: int = 128):

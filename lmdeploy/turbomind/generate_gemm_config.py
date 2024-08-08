@@ -3,6 +3,9 @@
 import os.path as osp
 import subprocess
 
+from lmdeploy.utils import get_logger
+
+logger = get_logger('lmdeploy')
 
 def get_llama_gemm():
     """Get the executable binary llama_gemm."""

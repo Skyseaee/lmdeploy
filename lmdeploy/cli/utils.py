@@ -69,15 +69,18 @@ def get_chat_template(chat_template: str):
 
     from lmdeploy.model import ChatTemplateConfig
     if chat_template:
+        from lmdeploy.model import MODELS
         if os.path.isfile(chat_template):
             return ChatTemplateConfig.from_json(chat_template)
-        else:
-            from lmdeploy.model import MODELS
-            assert chat_template in MODELS.module_dict.keys(), \
-                f"chat template '{chat_template}' is not " \
-                f'registered. The builtin chat templates are: ' \
-                f'{MODELS.module_dict.keys()}'
+        elif chat_template in MODELS.module_dict.keys():
             return ChatTemplateConfig(model_name=chat_template)
+            # assert chat_template in MODELS.module_dict.keys(), \
+            #     f"chat template '{chat_template}' is not " \
+            #     f'registered. The builtin chat templates are: ' \
+            #     f'{MODELS.module_dict.keys()}'
+        else:
+            # try to load as a json string
+            return ChatTemplateConfig.from_json(chat_template)
     else:
         return None
 
@@ -147,11 +150,28 @@ class ArgumentHelper:
     @staticmethod
     def tp(parser):
         """Add argument tp to parser."""
-
         return parser.add_argument('--tp',
                                    type=int,
                                    default=1,
                                    help='GPU number used in tensor parallelism. Should be 2^n')
+    
+    @staticmethod
+    def enable_expert_parallel(parser):
+        """Add argument enable expert parallel to parser."""
+
+        return parser.add_argument('--enable-expert-parallel',
+                                   action='store_true',
+                                   default=False,
+                                   help='Enable expert parallelism for moe layer when tensor parallelism')
+    
+    @staticmethod
+    def enable_attention_dp(parser):
+        """Add argument enable attention dp to parser."""
+
+        return parser.add_argument('--enable-attention-dp',
+                                   action='store_true',
+                                   default=False,
+                                   help='Enable data parallelism for attention layer when tensor parallelism')
 
     @staticmethod
     def dp(parser):
@@ -217,13 +237,46 @@ class ArgumentHelper:
 
     @staticmethod
     def quant_policy(parser, default: int = 0):
-        """Add argument quant_policy to parser."""
+        """Add argument quant_policy to parser, supporting both int and str."""
 
-        return parser.add_argument('--quant-policy',
-                                   type=int,
-                                   default=0,
-                                   choices=[0, 4, 8],
-                                   help='Quantize kv or not. 0: no quant; 4: 4bit kv; 8: 8bit kv')
+        def parse_quant_policy(value):
+            """Parse and validate quant_policy."""
+            # 定义字符串到整数的映射
+            quant_policy_map = {
+                'none': 0,
+                'kvint4': 4,
+                'kvint8': 8,
+                'kvfp8': 16,
+                'kvfp8-dynamic': 32
+            }
+            try:
+                # 如果是整数，直接返回
+                int_value = int(value)
+                if int_value in quant_policy_map.values():
+                    return int_value
+                else:
+                    raise ValueError
+            except ValueError:
+                # 如果是字符串，检查是否在映射表中
+                value = value.lower()
+                if value in quant_policy_map:
+                    return quant_policy_map[value]
+                raise ValueError(
+                    f"Invalid quant_policy value: {value}. Supported values are: "
+                    f"{list(quant_policy_map.keys()) + list(quant_policy_map.values())}"
+                )
+
+        # 添加参数到 parser
+        return parser.add_argument(
+            '--quant-policy',
+            type=parse_quant_policy,
+            default=0,
+            help=(
+                'Quantize kv or not. Accepts integers [0, 4, 8, 16, 32] or strings '
+                '[none, kvint4, kvint8, kvfp8, kvfp8-dynamic]. 0 or "none": no quant; 4 or "kvint4": 4bit kv; '
+                '8 or "kvint8": 8bit kv; 16 or "kvfp8": static quant fp8 kv; 32 or "kvfp8-dynamic": dynamic quant fp8 kv.'
+            )
+        )
 
     @staticmethod
     def rope_scaling_factor(parser):
@@ -485,6 +538,25 @@ class ArgumentHelper:
                                    help='Enable cache and match prefix')
 
     @staticmethod
+    def enable_expert_pruning(parser):
+        """Add argument enable_expert_pruning to parser."""
+
+        return parser.add_argument('--enable-expert-pruning',
+                                   action='store_true',
+                                   default=False,
+                                   help='Enable expert pruning')
+
+
+    @staticmethod
+    def keep_expert_num(parser):
+        """Add argument keep_expert_num to parser."""
+
+        return parser.add_argument('--keep-expert-num',
+                                    type=int,
+                                    default=24,
+                                    help='only works when use --enable-expert-pruning')
+
+    @staticmethod
     def num_tokens_per_iter(parser):
         return parser.add_argument('--num-tokens-per-iter',
                                    type=int,
@@ -507,7 +579,16 @@ class ArgumentHelper:
 
     @staticmethod
     def vision_max_batch_size(parser):
-        return parser.add_argument('--vision-max-batch-size', type=int, default=1, help='the vision model batch size')
+        return parser.add_argument('--vision-max-batch-size',
+                                   type=int,
+                                   default=1,
+                                   help='the vision model batch size')
+    @staticmethod
+    def vision_instance_num(parser):
+        return parser.add_argument('--vision-instance-num',
+                                   type=int,
+                                   default=1,
+                                   help='the vision instance number')
 
     @staticmethod
     def max_log_len(parser):

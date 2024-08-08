@@ -3,11 +3,9 @@ import os
 from typing import Dict, List, Literal, Optional, Union
 
 from transformers import AutoConfig
+from aipinfer import logger
 
 from .messages import PytorchEngineConfig, TurbomindEngineConfig
-from .utils import get_logger
-
-logger = get_logger('lmdeploy')
 
 
 def autoget_backend(model_path: str) -> Literal['turbomind', 'pytorch']:
@@ -38,7 +36,8 @@ def autoget_backend(model_path: str) -> Literal['turbomind', 'pytorch']:
     try:
         from lmdeploy.turbomind.supported_models import is_supported as is_supported_turbomind
         turbomind_has = is_supported_turbomind(model_path)
-    except ImportError:
+    except ImportError as e:
+        logger.error(e)
         is_turbomind_installed = False
 
     pytorch_has = is_supported_pytorch(model_path)
@@ -48,18 +47,19 @@ def autoget_backend(model_path: str) -> Literal['turbomind', 'pytorch']:
     if is_turbomind_installed:
         if not turbomind_has:
             if pytorch_has:
-                logger.warning('Fallback to pytorch engine because '
+                logger.warn('Fallback to pytorch engine because '
                                f'`{model_path}` not supported by turbomind'
                                ' engine.')
             else:
-                logger.warning(try_run_msg)
+                logger.warn(try_run_msg)
     else:
-        logger.warning('Fallback to pytorch engine because turbomind engine is not '
-                       'installed correctly. If you insist to use turbomind engine, '
-                       'you may need to reinstall lmdeploy from pypi or build from '
-                       'source and try again.')
+        logger.warn(
+            'Fallback to pytorch engine because turbomind engine is not '
+            'installed correctly. If you insist to use turbomind engine, '
+            'you may need to reinstall lmdeploy from pypi or build from '
+            'source and try again.')
         if not pytorch_has:
-            logger.warning(try_run_msg)
+            logger.warn(try_run_msg)
 
     backend = 'turbomind' if turbomind_has else 'pytorch'
     return backend
@@ -116,11 +116,14 @@ def check_vl_llm(config: dict) -> bool:
 
     arch = config['architectures'][0]
     supported_archs = set([
-        'LlavaLlamaForCausalLM', 'LlavaMistralForCausalLM', 'CogVLMForCausalLM', 'InternLMXComposer2ForCausalLM',
-        'InternVLChatModel', 'MiniCPMV', 'LlavaForConditionalGeneration', 'LlavaNextForConditionalGeneration',
-        'Phi3VForCausalLM', 'Qwen2VLForConditionalGeneration', 'Qwen2_5_VLForConditionalGeneration',
-        'MllamaForConditionalGeneration', 'MolmoForCausalLM', 'Gemma3ForConditionalGeneration',
-        'Llama4ForConditionalGeneration', 'InternVLForConditionalGeneration'
+        'LlavaLlamaForCausalLM', 'LlavaMistralForCausalLM', 'LlavaQwenForCausalLM',
+        'CogVLMForCausalLM', 'InternLMXComposer2ForCausalLM',
+        'InternVLChatModel', 'MiniGeminiLlamaForCausalLM',
+        'MGMLlamaForCausalLM', 'MiniCPMV', 'LlavaForConditionalGeneration',
+        'LlavaNextForConditionalGeneration', 'Phi3VForCausalLM',
+        'Qwen2VLForConditionalGeneration', 'MllamaForConditionalGeneration',
+        'MolmoForCausalLM', "CompassLLVM", 'Qwen2_5_VLForConditionalGeneration', 
+        'Gemma3ForConditionalGeneration', 'Llama4ForConditionalGeneration', 'InternVLForConditionalGeneration'
     ])
     if arch == 'QWenLMHeadModel' and 'visual' in config:
         return True

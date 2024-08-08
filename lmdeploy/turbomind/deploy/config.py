@@ -62,6 +62,7 @@ class ModelConfig:
     size_per_head: int = 128
     group_size: int = 64
     weight_type: str = None
+    torch_dtype: str = None
     session_len: int = None
     attn_tp_size: int = 1
     mlp_tp_size: int = 1
@@ -82,6 +83,13 @@ class ModelConfig:
     v_head_dim: int = 0
     # tuning
     tune_layer_num: int = 1
+    # Onellm
+    moe_norm_topk: int = False
+    tie_word_embeddings: int = 0
+    use_normhead: int = 0
+    qk_norm: bool = False
+    enable_expert_parallel: int = False
+    enable_attention_dp: int = False
 
     def verify(self):
         invalid = {}
@@ -113,6 +121,7 @@ class AttentionConfig:
     use_logn_attn: int = 0
     max_position_embeddings: int = 0
     rope_param: RopeParam = None
+    mrope_section: List[int] = (16, 24, 24)
 
 
 @dataclass
@@ -180,8 +189,24 @@ class TurbomindModelConfig:
         return self.model_config.session_len
 
     @property
+    def tensor_para_size(self):
+        return self.model_config.tp
+
+    @property
+    def enable_expert_parallel(self):
+        return self.model_config.enable_expert_parallel
+
+    @property
+    def enable_attention_dp(self):
+        return self.model_config.enable_attention_dp
+
+    @property
     def weight_type(self):
         return self.model_config.weight_type
+
+    @property
+    def torch_dtype(self):
+        return self.model_config.torch_dtype
 
     @property
     def group_size(self):

@@ -127,6 +127,8 @@ def parse_requirements(fname='requirements.txt', with_version=True):
 
 if __name__ == '__main__':
     lmdeploy_package_data = ['lmdeploy/bin/llama_gemm']
+    lmdeploy_package_data.append(os.path.join(pwd,'lmdeploy/vl/model/onepiece/requirements.txt'))
+
     setup(
         name='lmdeploy',
         version=get_version(),

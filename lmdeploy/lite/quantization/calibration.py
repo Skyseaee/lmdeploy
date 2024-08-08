@@ -213,7 +213,7 @@ class CalibrationContext():
         torch.save(out_stats, out_dir / 'outputs_stats.pth')
         torch.cuda.empty_cache()
 
-    def calibrate(self, data):
+    def calibrate(self, data, calib_dataset):
         """Forward pass through the model in inference mode with given data."""
 
         if type(self.model).__name__ in ('QWenLMHeadModel', 'ChatGLMForConditionalGeneration'):
@@ -221,8 +221,21 @@ class CalibrationContext():
         else:
             model = self.model.model
         with torch.inference_mode():
-            _ = model(data.to(self.device))
+            if calib_dataset == 'llvm':
+                images_embeddings = data['embeddings']
+                data = data['data']
+                inputs_ids = data.to(self.device)
+                texts_embeddings = model.get_input_embeddings()(inputs_ids)
+                images_embeddings = images_embeddings.to(dtype=texts_embeddings.dtype)
+                mixed_embeddings = self.modified_embeddings(texts_embeddings, images_embeddings)
+                _ = model(inputs_embeds=mixed_embeddings)
+            else:
+                _ = model(data.to(self.device))
         torch.cuda.empty_cache()
+    
+    def modified_embeddings(self, texts_embeddings, images_embeddings):
+        assert texts_embeddings.shape == images_embeddings.shape, "incorrect images embeddings"
+        return (texts_embeddings + images_embeddings)
 
     def __enter__(self):
         """Prepares the Calibration object for a 'with' statement by

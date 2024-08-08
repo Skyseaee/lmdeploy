@@ -17,15 +17,16 @@ def test_get_names_from_hf_model():
 
 
 def test_get_names_from_turbomind_model():
-    workspace = tempfile.TemporaryDirectory('internlm2_5-7b-chat').name
-    os.makedirs(os.path.join(workspace, 'triton_models', 'weights'), exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='internlm2_5-7b-chat') as workspace:
+        os.makedirs(os.path.join(workspace, 'triton_models', 'weights'),
+                    exist_ok=True)
 
-    import yaml
+        import yaml
 
-    expected_chat_template = 'internlm2'
-    config = dict(model_config=dict(chat_template=expected_chat_template))
-    with open(f'{workspace}/triton_models/weights/config.yaml', 'w') as f:
-        yaml.safe_dump(config, f)
+        expected_chat_template = 'internlm2'
+        config = dict(model_config=dict(chat_template=expected_chat_template))
+        with open(f'{workspace}/triton_models/weights/config.yaml', 'w') as f:
+            yaml.safe_dump(config, f)
 
-    _, chat_template = get_names_from_model(workspace)
-    assert chat_template == expected_chat_template
+        _, chat_template = get_names_from_model(workspace)
+        assert chat_template == expected_chat_template

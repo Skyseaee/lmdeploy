@@ -341,7 +341,13 @@ def get_max_batch_size(device_type: str):
     """
     assert device_type in ['cuda', 'ascend', 'maca', 'camb']
     if device_type == 'cuda':
-        max_batch_size_map = {'a100': 256, 'a800': 256, 'h100': 512, 'h800': 512}
+        max_batch_size_map = {
+            't4': 64,
+            'a100': 256,
+            'a800': 256,
+            'h100': 512,
+            'h800': 512
+        }
         import torch
         device_name = torch.cuda.get_device_name(0).lower()
         for name, size in max_batch_size_map.items():

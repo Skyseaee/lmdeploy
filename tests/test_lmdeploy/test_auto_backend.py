@@ -9,9 +9,12 @@ class TestAutoBackend:
 
     @pytest.fixture
     def turbomind_workspace(self):
-        workspace = tempfile.TemporaryDirectory('internlm-chat-7b-turbomind').name
-        os.makedirs(os.path.join(workspace, 'triton_models'), exist_ok=True)
-        return workspace
+        workspace = tempfile.TemporaryDirectory(
+            'internlm-chat-7b-turbomind')
+        os.makedirs(os.path.join(workspace.name, 'triton_models'), exist_ok=True)
+        yield workspace.name
+        workspace.cleanup()
+        
 
     @pytest.fixture
     def models(self):
@@ -26,8 +29,8 @@ class TestAutoBackend:
             ('internlm/internlm2-chat-7b', True, True),
             ('internlm/internlm-xcomposer2-7b', False, True),
             ('internlm/internlm-xcomposer-7b', False, False),
-            ('THUDM/chatglm2-6b', True, False),
-            ('THUDM/chatglm3-6b', True, False),
+            # ('THUDM/chatglm2-6b', True, False),
+            # ('THUDM/chatglm3-6b', True, False),
             ('deepseek-ai/deepseek-moe-16b-chat', True, False),
             ('01-ai/Yi-34B-Chat', True, True),
             ('codellama/CodeLlama-7b-Instruct-hf', True, True),

@@ -9,7 +9,8 @@ import torch
 from lmdeploy.archs import get_model_arch, search_nested_config
 from lmdeploy.messages import TurbomindEngineConfig
 from lmdeploy.model import MODELS, best_match_model
-from lmdeploy.utils import get_logger, get_model
+from lmdeploy.utils import get_model
+from aipinfer import logger
 
 from ...utils import _get_and_verify_max_len, is_bf16_supported
 from ..supported_models import SUPPORTED_ARCHS, is_supported
@@ -21,7 +22,7 @@ from .source_model.base import INPUT_MODELS
 from .target_model.base import OUTPUT_MODELS, BaseOutputModel
 
 SUPPORTED_FORMATS = ['hf', 'awq', 'gptq', 'fp8', None]
-logger = get_logger('lmdeploy')
+# logger = get_logger('lmdeploy')
 
 
 def get_input_model_registered_name(model_path: str, model_format: str):

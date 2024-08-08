@@ -235,6 +235,8 @@ class HuggingFaceTokenizer:
         skip_special_tokens: bool,
         spaces_between_special_tokens: bool,
     ) -> str:
+        if len(output_tokens) == 0:
+            return ''
         if tokenizer.is_fast or not tokenizer.get_added_vocab():
             return tokenizer.convert_tokens_to_string(output_tokens)
         # Adapted from

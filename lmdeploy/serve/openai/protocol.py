@@ -111,13 +111,13 @@ class ChatCompletionRequest(BaseModel):
     temperature: Optional[float] = 0.7
     top_p: Optional[float] = 1.0
     tools: Optional[List[Tool]] = Field(default=None, examples=[None])
-    tool_choice: Union[ToolChoice, Literal['auto', 'required', 'none']] = Field(default='auto',
-                                                                                examples=['none'])  # noqa
+    tool_choice: Union[ToolChoice, Literal['auto', 'required', 'none']] = Field(default='none', examples=['none'])  # noqa
     logprobs: Optional[bool] = False
     top_logprobs: Optional[int] = None
     n: Optional[int] = 1
     logit_bias: Optional[Dict[str, float]] = Field(default=None, examples=[None])  # noqa
     max_tokens: Optional[int] = Field(default=None, examples=[None])
+    max_completion_tokens: Optional[int] = Field(default=None, examples=[None])
     stop: Optional[Union[str, List[str]]] = Field(default=None, examples=[None])  # noqa
 
     stream: Optional[bool] = False
@@ -126,6 +126,7 @@ class ChatCompletionRequest(BaseModel):
     frequency_penalty: Optional[float] = 0.0
     user: Optional[str] = None
     response_format: Optional[ResponseFormat] = Field(default=None, examples=[None])  # noqa
+    chat_template_kwargs: Optional[Dict] = None
     # additional argument of lmdeploy
     do_preprocess: Optional[bool] = True
     repetition_penalty: Optional[float] = 1.0
@@ -138,6 +139,7 @@ class ChatCompletionRequest(BaseModel):
     min_new_tokens: Optional[int] = Field(default=None, examples=[None])
     min_p: float = 0.0
     enable_thinking: Optional[bool] = None
+    do_sample: Optional[bool] = True
 
 
 class FunctionCall(BaseModel):
@@ -201,7 +203,7 @@ class ChatCompletionResponseChoice(BaseModel):
     index: int
     message: ChatMessage
     logprobs: Optional[ChoiceLogprobs] = None
-    finish_reason: Optional[Literal['stop', 'length', 'tool_calls', 'error']] = None
+    finish_reason: Optional[Literal['stop', 'length', 'tool_calls', 'error', 'end', 'unknown']] = None
 
 
 class ChatCompletionResponse(BaseModel):
@@ -240,7 +242,7 @@ class ChatCompletionResponseStreamChoice(BaseModel):
     index: int
     delta: DeltaMessage
     logprobs: Optional[ChoiceLogprobs] = None
-    finish_reason: Optional[Literal['stop', 'length', 'tool_calls', 'error']] = None
+    finish_reason: Optional[Literal['stop', 'length', 'tool_calls', 'error', 'end', 'unknown']] = None
 
 
 class ChatCompletionStreamResponse(BaseModel):
@@ -279,6 +281,7 @@ class CompletionRequest(BaseModel):
     top_k: Optional[int] = 40  # for opencompass
     seed: Optional[int] = None
     min_p: float = 0.0
+    do_sample: Optional[bool] = True
 
 
 class CompletionResponseChoice(BaseModel):
@@ -286,7 +289,7 @@ class CompletionResponseChoice(BaseModel):
     index: int
     text: str
     logprobs: Optional[LogProbs] = None
-    finish_reason: Optional[Literal['stop', 'length', 'tool_calls', 'error']] = None
+    finish_reason: Optional[Literal['stop', 'length', 'tool_calls', 'error', 'end', 'unknown']] = None
 
 
 class CompletionResponse(BaseModel):
@@ -304,7 +307,7 @@ class CompletionResponseStreamChoice(BaseModel):
     index: int
     text: str
     logprobs: Optional[LogProbs] = None
-    finish_reason: Optional[Literal['stop', 'length', 'tool_calls', 'error']] = None
+    finish_reason: Optional[Literal['stop', 'length', 'tool_calls', 'error', 'end', 'unknown']] = None
 
 
 class CompletionStreamResponse(BaseModel):
@@ -374,34 +377,43 @@ class EncodeResponse(BaseModel):
 
 class GenerateRequest(BaseModel):
     """Generate request."""
-    prompt: Union[str, List[Dict[str, Any]]]
-    image_url: Optional[Union[str, List[str]]] = Field(default=None, examples=[None])
-    session_id: int = -1
-    interactive_mode: bool = False
-    stream: bool = False
-    stop: Optional[Union[str, List[str]]] = Field(default=None, examples=[None])
-    request_output_len: Optional[int] = Field(default=None, examples=[None])  # noqa
-    top_p: float = 0.8
-    top_k: int = 40
-    temperature: float = 0.8
-    repetition_penalty: float = 1.0
-    ignore_eos: bool = False
-    skip_special_tokens: Optional[bool] = True
-    spaces_between_special_tokens: Optional[bool] = True
-    cancel: Optional[bool] = False  # cancel a responding request
-    adapter_name: Optional[str] = Field(default=None, examples=[None])
-    seed: Optional[int] = None
-    min_new_tokens: Optional[int] = Field(default=None, examples=[None])
-    min_p: float = 0.0
+    # prompt: Union[str, List[Dict[str, Any]]]
+    # image_url: Optional[Union[str, List[str]]] = Field(default=None,
+    #                                                    examples=[None])
+    # session_id: int = -1
+    # interactive_mode: bool = False
+    # stream: bool = False
+    # stop: Optional[Union[str, List[str]]] = Field(default=None,
+    #                                               examples=[None])
+    # request_output_len: Optional[int] = Field(default=None,
+    #                                           examples=[None])  # noqa
+    # top_p: float = 0.8
+    # top_k: int = 40
+    # temperature: float = 0.8
+    # repetition_penalty: float = 1.0
+    # ignore_eos: bool = False
+    # skip_special_tokens: Optional[bool] = True
+    # cancel: Optional[bool] = False  # cancel a responding request
+    # adapter_name: Optional[str] = Field(default=None, examples=[None])
+    # seed: Optional[int] = None
+    # min_new_tokens: Optional[int] = Field(default=None, examples=[None])
+    # min_p: float = 0.0
+    traceid: Optional[Union[str, int]] = None
+    data: Optional[Dict[str, Any]] = {}
 
 
 class GenerateResponse(BaseModel):
-    """Generate response."""
-    text: str
-    tokens: int
-    input_tokens: int
-    history_tokens: int
-    finish_reason: Optional[Literal['stop', 'length', 'tool_calls', 'error']] = None
+    """Generate response."""    
+    err_num: int = 0
+    err_msg: str = "OK"
+    traceid: Optional[Union[str, int]] = None
+    text: Optional[str] = None
+    input_tokens: Optional[int] = None
+    generated_tokens: Optional[int] = None
+    history_tokens: Optional[int] = None
+    cost_time: Optional[float] = None
+    finish_reason: Optional[Literal['stop', 'length', 'tool_calls', 'error', 'end', 'unknown']] = None
+    finished: Optional[bool] = None
 
 
 class UpdateParamsRequest(BaseModel):

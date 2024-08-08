@@ -24,18 +24,20 @@ from torch.nn.utils.rnn import pad_sequence
 import lmdeploy
 from lmdeploy.messages import EngineOutput, GenerationConfig, ResponseType, TurbomindEngineConfig
 from lmdeploy.serve.openai.protocol import UpdateParamsRequest
-from lmdeploy.utils import get_logger, get_max_batch_size, get_model
+from lmdeploy.tokenizer import Tokenizer
+from lmdeploy.utils import get_max_batch_size, get_model
 
 from .deploy.config import TurbomindModelConfig
 from .supported_models import is_supported
 from .utils import ModelSource, get_model_source
+
+from aipinfer import logger
 
 # TODO: find another way import _turbomind
 lmdeploy_dir = osp.split(lmdeploy.__file__)[0]
 sys.path.append(osp.join(lmdeploy_dir, 'lib'))
 import _turbomind as _tm  # noqa: E402
 
-logger = get_logger('lmdeploy')
 
 MAX_LOGPROBS = 1024
 
@@ -203,6 +205,7 @@ class TurboMind:
 
         # create weight
         def _create_weight_func(device_id):
+            # TODO(Alan): 考虑 tp和ep同时启用的时候，当前存在问题
             rank = self.node_id * self.gpu_count + device_id
             model_comm.create_shared_weights(device_id, rank)
 
@@ -253,9 +256,15 @@ class TurboMind:
             self.engine_config.max_prefill_iters = (self.config.session_len + engine_config.max_prefill_token_num -
                                                     1) // engine_config.max_prefill_token_num
 
+        # Note: use_logn_attn should get from huggingface config.json in LLM-Maas
+        engine_config.use_logn_attn = bool(self.config.attention_config.use_logn_attn)
+        engine_config.session_len = self.config.session_len
+        # self.model_name = self.config.model_name
+
         # pack `self.config` and `self.engine_config` into a dict
         self.config_dict = self.config.to_dict()
         self.config_dict.update(dict(engine_config=asdict(self.engine_config)))
+
         logger.info(f'turbomind model config:\n\n'
                     f'{json.dumps(self.config_dict, indent=2)}')
 
@@ -272,9 +281,19 @@ class TurboMind:
 
         self._postprocess_config(tm_model.tm_config, engine_config)
 
-        model_comm = _tm.AbstractTransformerModel.create_llama_model(model_dir='',
-                                                                     config=yaml.safe_dump(self.config_dict),
-                                                                     weight_type=self.config.model_config.weight_type)
+        if self.config_dict['model_config']['weight_type'] == 'int4':
+            data_type = 'float16'
+        else:
+            data_type=self.config_dict['model_config']['torch_dtype']
+
+        model_comm = _tm.AbstractTransformerModel.create_llama_model(
+            model_dir='',
+            config=yaml.safe_dump(self.config_dict),
+            weight_type=self.config.model_config.weight_type,
+            tensor_para_size=engine_config.tp,
+            enable_expert_parallel=engine_config.enable_expert_parallel,
+            enable_attention_dp=engine_config.enable_attention_dp,
+            data_type=data_type)
 
         # create empty weight
         self._create_weight(model_comm)
@@ -283,7 +302,15 @@ class TurboMind:
         # get tm params
         tm_params = tm_model.tm_params
         self._get_model_params(model_comm, tm_params)
-        logger.warning(f'get {len(tm_params)} model params')
+        logger.warn(f'get {len(tm_params)} model params')
+        tm_model.export()
+        # there should be no left turbomind params.
+        if len(tm_params) > 0:
+            uninitialized = list(tm_params.keys())
+            logger.warn(
+                'the model may not be loaded successfully '
+                f'with {len(tm_params)} uninitialized params:\n{uninitialized}'
+            )
         return model_comm
 
     def _from_workspace(self, model_path: str, engine_config: TurbomindEngineConfig):
@@ -297,13 +324,46 @@ class TurboMind:
         # always use tp in converted model (config.yaml)
         assert cfg.model_config.attn_tp_size == engine_config.attn_tp_size, \
             f'tp size mismatch ({cfg.model_config.attn_tp_size} vs {engine_config.attn_tp_size})'
+        if cfg.tensor_para_size != engine_config.tp:
+            logger.warning(
+                'tp in engine_config is different from in config.yaml'
+                f'({config_path}), {engine_config.tp} vs '
+                f'{cfg.tensor_para_size}, using tp={cfg.tensor_para_size}')
+
+        if cfg.enable_expert_parallel != engine_config.enable_expert_parallel:
+            logger.warning(
+                'enable_expert_parallel in engine_config is different from in config.yaml'
+                f'({config_path}), {engine_config.enable_expert_parallel} vs '
+                f'{cfg.enable_expert_parallel}, using enable_expert_parallel={cfg.enable_expert_parallel}')
+
+        if cfg.enable_attention_dp != engine_config.enable_attention_dp:
+            logger.warning(
+                'enable_attention_dp in engine_config is different from in config.yaml'
+                f'({config_path}), {engine_config.enable_attention_dp} vs '
+                f'{cfg.enable_attention_dp}, using enable_attention_dp={cfg.enable_attention_dp}')
+
+        self.gpu_count = cfg.tensor_para_size
+        engine_config.tp = cfg.tensor_para_size
+        engine_config.enable_expert_parallel = cfg.enable_expert_parallel
+        engine_config.enable_attention_dp = cfg.enable_attention_dp
 
         self._postprocess_config(cfg, engine_config)
 
+        if self.config_dict['model_config']['weight_type'] == 'int4':
+            data_type = 'float16'
+        else:
+            data_type=self.config_dict['model_config']['torch_dtype']
+
         weight_dir = osp.join(model_path, 'triton_models', 'weights')
-        model_comm = _tm.AbstractTransformerModel.create_llama_model(model_dir=weight_dir,
-                                                                     config=yaml.safe_dump(self.config_dict),
-                                                                     weight_type=self.config.weight_type)
+
+        model_comm = _tm.AbstractTransformerModel.create_llama_model(
+            model_dir=weight_dir,
+            config=yaml.safe_dump(self.config_dict),
+            weight_type=self.config.weight_type,
+            tensor_para_size=engine_config.tp,
+            enable_expert_parallel=engine_config.enable_expert_parallel,
+            enable_attention_dp=engine_config.enable_attention_dp,
+            data_type=data_type)
 
         # create weight and load params
         self._create_weight(model_comm)
@@ -377,7 +437,7 @@ class TurboMind:
                 Can be used to update configuration when initialize the engine.
         """
         model_source = get_model_source(pretrained_model_name_or_path)
-        logger.info(f'model_source: {model_source}')
+        logger.warn(f'model_source: {model_source}')
         return cls(model_path=pretrained_model_name_or_path,
                    tokenizer=tokenizer,
                    model_name=model_name,

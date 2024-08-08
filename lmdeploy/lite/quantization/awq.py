@@ -33,6 +33,14 @@ NORM_FCS_MAP = {
         'input_layernorm': ['self_attn.k_proj', 'self_attn.q_proj', 'self_attn.v_proj'],
         'post_attention_layernorm': ['mlp.gate_proj', 'mlp.up_proj']
     },
+    'Qwen3DecoderLayer': {
+        'input_layernorm': ['self_attn.k_proj', 'self_attn.q_proj', 'self_attn.v_proj'],
+        'post_attention_layernorm': ['mlp.gate_proj', 'mlp.up_proj']
+    },
+    'Qwen3MoeDecoderLayer': {
+        'input_layernorm': ['self_attn.k_proj', 'self_attn.q_proj', 'self_attn.v_proj'],
+        'post_attention_layernorm': ['mlp.experts.{i}.gate_proj', 'mlp.experts.{i}.up_proj']
+    },
     'DecoderLayer': {
         'input_layernorm': ['self_attn.W_pack'],
         'post_attention_layernorm': ['mlp.gate_proj', 'mlp.up_proj']
@@ -46,9 +54,10 @@ NORM_FCS_MAP = {
         'post_attention_layernorm': ['mlp.dense_h_to_4h']
     },
     'MixtralDecoderLayer': {
-        'input_layernorm': ['self_attn.k_proj', 'self_attn.q_proj', 'self_attn.v_proj'],
+        'input_layernorm':
+        ['self_attn.k_proj', 'self_attn.q_proj', 'self_attn.v_proj'],
         'post_attention_layernorm':
-        ['block_sparse_moe.gate', 'block_sparse_moe.experts.{i}.w1', 'block_sparse_moe.experts.{i}.w3']
+        ['block_sparse_moe.experts.{i}.w1', 'block_sparse_moe.experts.{i}.w3']
     },
     'Qwen2VLDecoderLayer': {
         'input_layernorm': ['self_attn.k_proj', 'self_attn.q_proj', 'self_attn.v_proj'],
@@ -61,6 +70,18 @@ NORM_FCS_MAP = {
     'MistralDecoderLayer': {
         'input_layernorm': ['self_attn.k_proj', 'self_attn.q_proj', 'self_attn.v_proj'],
         'post_attention_layernorm': ['mlp.gate_proj', 'mlp.up_proj']
+    },
+    'CompassDecoderLayer': {
+        'input_layernorm':
+        ['self_attn.k_proj', 'self_attn.q_proj', 'self_attn.v_proj'],
+        'post_attention_layernorm': ['mlp.gate_proj', 'mlp.up_proj']
+    },
+    'CompassMoeDecoderLayer': {
+        'input_layernorm':
+        ['self_attn.k_proj', 'self_attn.q_proj', 'self_attn.v_proj'],
+        'post_attention_layernorm':
+        ['mlp.experts.{i}.gate_proj', 'mlp.experts.{i}.up_proj',
+         'mlp.shared_expert.gate_proj', 'mlp.shared_expert.up_proj']
     },
 }
 
@@ -92,6 +113,10 @@ FC_FCS_MAP = {
         'self_attn.v_proj': ['self_attn.o_proj'],
         'mlp.up_proj': ['mlp.down_proj']
     },
+    'Qwen3MoeDecoderLayer': {
+        'self_attn.v_proj': ['self_attn.o_proj'],
+        'mlp.experts.{i}.up_proj': ['mlp.experts.{i}.down_proj']
+    },
     'DecoderLayer': {
         'self_attn.W_pack': ['self_attn.o_proj'],
         'mlp.up_proj': ['mlp.down_proj']
@@ -119,7 +144,15 @@ FC_FCS_MAP = {
     'MistralDecoderLayer': {
         'self_attn.v_proj': ['self_attn.o_proj'],
         'mlp.up_proj': ['mlp.down_proj']
-    }
+    },
+    'CompassDecoderLayer': {
+        'self_attn.v_proj': ['self_attn.o_proj'],
+        'mlp.up_proj': ['mlp.down_proj']
+    },
+    'CompassMoeDecoderLayer': {
+        'self_attn.v_proj': ['self_attn.o_proj'],
+        'mlp.experts.{i}.up_proj': ['mlp.experts.{i}.down_proj']
+    },
 }
 
 SKIPPED_MODULE = ['lora', 'block_sparse_moe.gate']
@@ -298,6 +331,13 @@ def quant_weights(model, fcs, bits, symmetry, group_size=-1, device='cuda'):
     from lmdeploy.lite.quantization import WeightQuantizer
     from lmdeploy.lite.quantization.modules import WeightOnlyQLinear
     from lmdeploy.lite.utils import QParams
+
+    model_type = type(model).__name__
+    if model_type in ['CompassMoeForCausalLM', 'DeepseekV3ForCausalLM',
+                      'Qwen3MoeForCausalLM']:
+        # skip *mlp.gate layers for compass-smoe and deepseekv3 models
+        SKIPPED_MODULE.append('mlp.gate')
+
     for name, fc in fcs.items():
         fc.to(device)
         parent_name, _, child_name = name.rpartition('.')

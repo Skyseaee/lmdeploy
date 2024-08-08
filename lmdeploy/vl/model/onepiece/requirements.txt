@@ -1,0 +1,8 @@
+pycuda==2024.1.2
+onnxruntime-gpu==1.19.2
+onnx==1.17.0
+onnxsim==0.4.36
+onnx_graphsurgeon==0.5.2
+onnx-simplifier==0.4.36
+tensorrt==10.7.0
+cuda-python==12.3.0

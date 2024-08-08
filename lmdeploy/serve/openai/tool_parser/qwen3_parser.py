@@ -29,7 +29,7 @@ class ParserState(object):
         self.id = ''
 
 
-@ToolParserManager.register_module(['qwen', 'qwen3'])
+@ToolParserManager.register_module(['qwen3'])
 class Qwen3ToolParser(ToolParser):
     """Parser for Qwen3 model's tool call format.
 

@@ -1,0 +1,476 @@
+# 一些通用的配置
+common_settings:
+  # model默认缓存位置
+  model_dir: "/workspace/mnt/"
+
+test_models:
+  # 下边是测试模型的列表
+  ##################################
+  llama-3.1-8B-instruct:
+    model_info:
+      # 默认会去model_dir里找对应模型，除非另定义了path
+      # model_dir: "/workspace/mnt/"
+      # 如果在model_dir里没找到，就去model_repo下载
+      model_repo:
+        model_id: 35801
+        version_id: 40866
+        project_id: 0  # 默认是0，从official仓库下载
+    service_info:
+      common:
+        # 放一些通用的service参数和测试case
+        service_args:
+          common: "--enable-prefix-caching"
+          a100: "--cache-max-entry-count 0.4"  # 每种GPU特殊的参数
+        test_data:
+          - prompt: "The following are questions with answers.\n\nQ: What is the capital of Germany?\nA: Berlin\nQ: What is the capital of Italy?\nA: Rome\nQ:What is the capital of France?\nA:"
+            ground_truth:
+              a100: "Paris"
+              h100: "Paris"
+              t4: "Paris"
+              v100: "Paris"
+            verification: in
+      fp16:
+        target_gpus: ["a100", "h100", "t4", "v100"]  # 必须参数，设置可以在哪些GPU上跑，否则略过这个test case
+        service_args:
+          t4: "--tp 2"
+        test_data:
+          - prompt: "Please describe Shopee in short."
+            ground_truth:
+              a100: "Shopee is a leading e-commerce platform in Southeast Asia and Taiwan. It is a platform tailored for the region, providing customers with an easy, secure and fast online shopping experience through strong payment and logistical support.\n\nShopee aims to continually enhance its platform and become the region’s e-commerce destination of choice. Shope"
+              h100: "Shopee is a popular e-commerce platform that allows users to buy and sell a wide range of products, including electronics, fashion, beauty, and home goods. It was founded in 2015 and is owned by Sea Group, a Singapore-based technology company. Shopee is known for its user-friendly interface, fast"
+              t4: "Shopee is a popular e-commerce platform that allows users to buy and sell a wide range of products, including electronics, fashion, beauty, and home goods. It was founded in 2015 and is owned by Sea Group, a Singapore-based technology company. Shopee is known for its user-friendly interface, fast"
+              v100: "Shopee is a popular e-commerce platform that allows users to buy and sell a wide range of products, including electronics, fashion, beauty, and home goods. It was founded in 2015 and is owned by Sea Group, a Singapore-based technology company. Shopee is known for its user-friendly interface, fast"
+            verification: ==
+      fp16-kvint8:
+        target_gpus: ["a100", "h100", "t4", "v100"]
+        service_args:
+          common: "--quant-policy 8"
+          t4: "--tp 2 --cache-max-entry-count 0.7"
+        test_data:
+          - prompt: "Please describe Shopee in short."
+            ground_truth:
+              a100: "Shopee is a leading e-commerce platform in Southeast Asia and Taiwan. It is a platform tailored for the region, "
+              h100: "Shopee is a popular e-commerce platform that allows users to buy and sell a wide range of products, including electronics, fashion, beauty, and home goods."
+              t4: "Shopee is a popular e-commerce platform that allows users to buy and sell a wide range of products, including electronics, fashion, beauty, and home goods."
+              v100: "Shopee is a popular e-commerce platform that allows users to buy and sell a wide range of products, including electronics, fashion, beauty, home goods, and more."
+            verification: startswith
+      awq-w4a16-kvfp16:
+        target_gpus: ["a100", "h100", "t4", "v100"]
+        # 先在model_dir里找，如果找不到就执行量化脚本
+        quantization: "awq-w4a16"
+        test_data:
+          - prompt: "Please describe Shopee in short."
+            ground_truth:
+              a100: "Shopee is a great company"
+              h100: "Shopee is a popular e-commerce platform in Southeast Asia, founded in Singapore in 2015. It allows users to buy and sell a wide range of products, from electronics and fashion items to home goods and groceries."
+              t4: "Shopee is a popular e-commerce platform in Southeast Asia, founded in Singapore in 2015. It allows users to buy and sell a wide range of products, from electronics and fashion items to home goods and groceries."
+              v100: "Shopee is a popular e-commerce platform in Southeast Asia, founded in Singapore in 2015. It allows users to buy and sell a wide range of products, from electronics and fashion items to home goods and groceries."
+            verification: startswith
+      fp8-kvfp8:
+        target_gpus: ["h100"]
+        # 先在model_dir里找，如果找不到就执行量化脚本
+        quantization: "fp8"
+        service_args:
+          common: "--quant-policy 16"
+        test_data:
+          - prompt: "Please describe Shopee in short."
+            ground_truth:
+              h100: "Shopee is a Southeast Asian e-commerce platform that allows users to buy and sell a wide range of products, including electronics, fashion, beauty, and home goods. It was launched in 2015 and is owned by Sea Group, a Singapore-based technology company. Shopee is popular in countries such as Indonesia,"
+            verification: ==
+  ##################################
+  DeepSeek-R1-Distill-Qwen-7B:
+    model_info:
+      # 如果在model_dir里没找到，就去model_repo下载
+      model_repo:
+        model_id: 36990
+        version_id: 46430
+        project_id: 0  # 默认是0，从official仓库下载
+    service_info:
+      common:
+        # 放一些通用的service参数和测试case
+        service_args:
+          common: "--enable-prefix-caching"
+          a100: "--cache-max-entry-count 0.4"  # 每种GPU特殊的参数
+        test_data:
+          - prompt: "What is the capital of France?\n"
+            ground_truth:
+              a100: "Paris"
+              h100: "Paris"
+              t4: "Paris"
+              v100: "Paris"
+            verification: in
+      fp16:
+        target_gpus: ["a100", "h100", "t4", "v100"]  # 必须参数，设置可以在哪些GPU上跑，否则略过这个test case
+        service_args:
+          t4: "--tp 2 --cache-max-entry-count 0.7"
+        test_data:
+          - prompt: "Please describe Shopee in short."
+            ground_truth:
+              a100: "<think>\nOkay, so I need to describe Shopee in a short way. I'm not too familiar with it, but I think it's an online shopping platform. Let me try to break it down."
+              h100: "<think>\nOkay, so I need to describe Shopee in a short way. I'm not super familiar with it, but I think it's an e-commerce platform. Let me try to break it down."
+              t4: "<think>\nOkay, so I need to describe Shopee in a short way. I'm not super familiar with it, but I think it's an e-commerce platform. Let me try to break it down."
+              v100: "<think>\nOkay, so I need to describe Shopee in a short way. I'm not super familiar with it, but I think it's an e-commerce platform. Let me try to break it down."
+            verification: startswith
+      fp16-kvint8:
+        target_gpus: ["a100", "h100", "t4", "v100"]
+        service_args:
+          common: "--quant-policy 8"
+          t4: "--tp 2 --cache-max-entry-count 0.7"
+        test_data:
+          - prompt: "Please describe Shopee in short."
+            ground_truth:
+              a100: "<think>\nOkay, so I need to describe Shopee in short. Hmm, I'm not not too familiar with Shopee, but I think it's an online shopping platform. Let me try to recall what I know."
+              h100: "<think>\nOkay, so I need to describe Shopee in short. Hmm, I'm not not too familiar with Shopee, but I think it's an online shopping platform. Let me try to recall what I know."
+              t4: "<think>\nOkay, so I need to describe Shopee in a short way. I'm not super familiar with it, but I think it's an e-commerce platform. Let me try to break it down"
+              v100: "<think>\nOkay, so I need to describe Shopee in a short way. I'm not super familiar with it, but I think it's an e-commerce platform. Let me try to break it down"
+            verification: startswith
+      awq-w4a16-kvfp16:
+        target_gpus: ["a100", "h100", "t4", "v100"]
+        service_args:
+          t4: "--tp 1 --cache-max-entry-count 0.7"
+        # 先在model_dir里找，如果找不到就执行量化脚本
+        quantization: "awq-w4a16"
+        test_data:
+          - prompt: "Please describe Shopee in short."
+            ground_truth:
+              a100: "Shopee is a great company"
+              h100: "<think>\nOkay, so I need to describe Shopee in short. Hmm, I'm not exactly sure what Shopee is. I think it's a platform, maybe something like Facebook or Instagram? Wait, no, I remember hearing about it in the context of shopping. Maybe it's a social shopping app?"
+              t4: "<think>\nOkay, so I need to describe Shopee in short. Hmm, I'm not exactly sure what Shopee is. I think it's a platform, maybe something like Facebook or Instagram? Wait, no, I remember hearing about it in the context of shopping. Maybe it's a social shopping app?"
+              v100: "<think>\nOkay, so I need to describe Shopee in a short paragraph. I'm not exactly sure what Shopee is, but I think it's related to online shopping. Maybe it's a platform or a company? I remember hearing about it in the context of Southeast Asia."
+            verification: startswith
+      fp8-kvfp8:
+        target_gpus: ["h100"]
+        # 先在model_dir里找，如果找不到就执行量化脚本
+        quantization: "fp8"
+        service_args:
+          common: "--quant-policy 16"
+        test_data:
+          - prompt: "Please describe Shopee in short."
+            ground_truth:
+              h100: "<think>\n\n</think>\n\nShopee is a popular e-commerce platform primarily used<think>\nOkay, so I"
+            verification: startswith
+  ##################################
+  compass-13b-v1.3.0:
+    model_info:
+      # 如果在model_dir里没找到，就去model_repo下载
+      model_repo:
+        model_id: 36065
+        version_id: 43371
+        project_id: 0  # 默认是0，从official仓库下载
+    service_info:
+      common:
+        # 放一些通用的service参数和测试case
+        service_args:
+          common: "--enable-prefix-caching"
+        test_data:
+          - prompt: "What is the capital of France?\n"
+            ground_truth:
+              a100: "Paris"
+              h100: "Paris"
+              t4: "Paris"
+              v100: "Paris"
+            verification: in
+      fp16:
+        target_gpus: ["h100", "v100"]  # 必须参数，设置可以在哪些GPU上跑，否则略过这个test case
+        service_args:
+          v100: "--tp 2"
+        test_data:
+          - prompt: "Please describe Shopee in short."
+            ground_truth:
+              h100: "\n\nShopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines."
+              v100: "\n\nShopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines."
+            verification: startswith
+      fp16-kvint8:
+        target_gpus: ["h100"]
+        service_args:
+          common: "--quant-policy 8"
+        test_data:
+          - prompt: "Please describe Shopee in short."
+            ground_truth:
+              h100: "\n\nShopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines."
+            verification: startswith
+      awq-w4a16-kvfp16:
+        target_gpus: ["h100", "v100"]
+        service_args:
+          t4: "--tp 1 --cache-max-entry-count 0.6"
+        # 先在model_dir里找，如果找不到就执行量化脚本
+        quantization: "awq-w4a16"
+        test_data:
+          - prompt: "Please describe Shopee in short."
+            ground_truth:
+              h100: " \n\nShopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines."
+              v100: "\n\nShopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines."
+            verification: startswith
+      fp8-kvfp8:
+        target_gpus: ["h100"]
+        # 先在model_dir里找，如果找不到就执行量化脚本
+        quantization: "fp8"
+        service_args:
+          common: "--quant-policy 16"
+        test_data:
+          - prompt: "Please describe Shopee in short."
+            ground_truth:
+              h100: "\n\nShopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines."
+            verification: startswith
+  ##################################
+  Qwen2.5-32B-Instruct:
+    model_info:
+      # 如果在model_dir里没找到，就去model_repo下载
+      model_repo:
+        model_id: 37046
+        version_id: 46793
+        project_id: 0  # 默认是0，从official仓库下载
+    service_info:
+      common:
+        # 放一些通用的service参数和测试case
+        service_args:
+          common: "--enable-prefix-caching"
+        test_data:
+          - prompt: "What is the capital of France?\n"
+            ground_truth:
+              a100: "Paris"
+              h100: "Paris"
+              t4: "Paris"
+              v100: "Paris"
+            verification: in
+          - prompt: "Please describe Shopee in short."
+            ground_truth:
+              h100: "Shopee is a leading e-commerce platform in Southeast Asia and Taiwan, owned by Sea Group."
+            verification: startswith
+      fp16:
+        target_gpus: ["h100"]  # 必须参数，设置可以在哪些GPU上跑，否则略过这个test case
+        service_args:
+          h100: "--cache-max-entry-count 0.7"
+      fp16-kvint8:
+        target_gpus: ["h100"]
+        service_args:
+          common: "--quant-policy 8"
+          h100: "--cache-max-entry-count 0.7"
+      awq-w4a16-kvfp16:
+        target_gpus: ["h100", "t4", "v100"]
+        service_args:
+          t4: "--tp 2 --cache-max-entry-count 0.5"
+          v100: "--cache-max-entry-count 0.7"
+        # 先在model_dir里找，如果找不到就执行量化脚本
+        quantization: "awq-w4a16"
+      fp8-kvfp8:
+        target_gpus: ["h100"]
+        # 先在model_dir里找，如果找不到就执行量化脚本
+        quantization: "fp8"
+        service_args:
+          common: "--quant-policy 16"
+  ##################################
+  compass-smoe-s2_03162_ckp1648_off_dpo_001:
+    model_info:
+      # 如果在model_dir里没找到，就去model_repo下载
+      model_repo:
+        model_id: 36386
+        version_id: 48252
+        project_id: 88  # 默认是0，从official仓库下载
+    service_info:
+      common:
+        # 放一些通用的service参数和测试case
+        service_args:
+          common: "--enable-prefix-caching"
+        test_data:
+          - prompt: "What is the capital of France?\n"
+            ground_truth:
+              a100: "Paris"
+              h100: "Paris"
+              t4: "Paris"
+              v100: "Paris"
+            verification: in
+      fp16:
+        target_gpus: ["h100", "v100"]  # 必须参数，设置可以在哪些GPU上跑，否则略过这个test case
+        service_args:
+          v100: "--tp 2 --cache-max-entry-count 0.3"
+        test_data:
+          - prompt: "Please describe Shopee in short."
+            ground_truth:
+              h100: " Shopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines. Shopee offers online shopping services for a variety of products"
+            verification: startswith
+      fp16-kvint8:
+        target_gpus: ["h100"]
+        service_args:
+          common: "--quant-policy 8"
+        test_data:
+          - prompt: "Please describe Shopee in short."
+            ground_truth:
+              h100: " Shopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines. Shopee offers online shopping services for a variety of products"
+            verification: startswith
+      awq-w4a16-kvfp16:
+        target_gpus: ["h100", "t4", "v100"]
+        service_args:
+          t4: "--tp 2 --cache-max-entry-count 0.6"
+        # 先在model_dir里找，如果找不到就执行量化脚本
+        quantization: "awq-w4a16"
+        test_data:
+          - prompt: "Please describe Shopee in short."
+            ground_truth:
+              h100: " Shopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines."
+              t4: " Shopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines."
+              v100: " Shopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines."
+            verification: startswith
+      fp8-kvfp8:
+        target_gpus: ["h100"]
+        # 先在model_dir里找，如果找不到就执行量化脚本
+        quantization: "fp8"
+        service_args:
+          common: "--model-format fp8  --quant-policy 16"
+        test_data:
+          - prompt: "Please describe Shopee in short."
+            ground_truth:
+              h100: " Shopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines."
+            verification: startswith
+
+
+##################################
+  Qwen2.5-VL-7B-Instruct:
+    model_info:
+      # 如果在model_dir里没找到，就去model_repo下载
+      model_repo:
+        model_id: 37046
+        version_id: 48394
+        project_id: 0
+    service_info:
+      common:
+        # 放一些通用的service参数和测试case
+        service_args:
+          common: ""
+        test_data:
+          - prompt: "Identify the food in the picture."
+            image_url: "https://p7.itc.cn/q_70/images03/20220907/b60149db73c64bd99057ec02c64ef7d4.jpeg"
+            ground_truth:
+              a100: "noodle"
+              h100: "noodle"
+              v100: "noodle"
+            verification: in
+      fp16:
+        target_gpus: ["h100", "v100"]  # 必须参数，设置可以在哪些GPU上跑，否则略过这个test case
+      fp8-kvfp8:
+        target_gpus: ["h100"]
+        # 先在model_dir里找，如果找不到就执行量化脚本
+        quantization: "fp8"
+        service_args:
+          common: "--model-format fp8  --quant-policy 32"  # quant-policy 16有精度问题
+
+##################################
+  mllm-1.0.0:
+    model_info:
+      # 如果在model_dir里没找到，就去model_repo下载
+      model_repo:
+        model_id: 37045
+        version_id: 43708
+        project_id: 0  # 默认是0，从official仓库下载
+    service_info:
+      common:
+        # 放一些通用的service参数和测试case
+        service_args:
+          common: ""
+        test_data:
+          - prompt: "Identify the food in the picture."
+            image_url: "https://p7.itc.cn/q_70/images03/20220907/b60149db73c64bd99057ec02c64ef7d4.jpeg"
+            ground_truth:
+              a100: "noodle"
+              h100: "noodle"
+              v100: "noodle"
+            verification: in
+      fp16:
+        target_gpus: ["h100"]  # 必须参数，设置可以在哪些GPU上跑，否则略过这个test case
+      awq-w4a16-kvfp16:
+        target_gpus: ["h100"]
+        service_args:
+          common: "--model-format awq"
+        # 先在model_dir里找，如果找不到就执行量化脚本
+        quantization: "awq-w4a16"
+      fp8-kvfp8:
+        target_gpus: ["h100"]
+        # 先在model_dir里找，如果找不到就执行量化脚本
+        quantization: "fp8"
+        service_args:
+          common: "--model-format fp8 --quant-policy 16"
+
+##################################
+  mllm-1.6.0:
+    model_info:
+      # 如果在model_dir里没找到，就去model_repo下载
+      model_repo:
+        model_id: 37045
+        version_id: 48826
+        project_id: 0  # 默认是0，从official仓库下载
+    service_info:
+      common:
+        # 放一些通用的service参数和测试case
+        service_args:
+          common: ""
+        test_data:
+          - prompt: "Identify the food in the picture."
+            image_url: "https://p7.itc.cn/q_70/images03/20220907/b60149db73c64bd99057ec02c64ef7d4.jpeg"
+            ground_truth:
+              a100: "noodle"
+              h100: "noodle"
+              v100: "noodle"
+            verification: in
+      fp16:
+        target_gpus: ["h100", "v100"]  # 必须参数，设置可以在哪些GPU上跑，否则略过这个test case
+        service_args:
+          v100: "--tp 2"
+      fp16_tp1_vision_instx2:
+        target_gpus: ["h100"]  # 必须参数，设置可以在哪些GPU上跑，否则略过这个test case
+        service_args:
+          h100: "--tp 1 --vision-instance-num 2"
+      fp16_tp2_vision_instx2:
+        target_gpus: ["v100", "h100"]  # 必须参数，设置可以在哪些GPU上跑，否则略过这个test case
+        service_args:
+          v100: "--tp 2 --vision-instance-num 2"
+          h100: "--tp 2 --vision-instance-num 2"
+      awq-w4a16-kvfp16:
+        target_gpus: ["h100", "v100"]
+        service_args:
+          common: "--quant-policy 8"
+        # 先在model_dir里找，如果找不到就执行量化脚本
+        quantization: "awq-w4a16"
+      fp8-kvfp8:
+        target_gpus: ["h100"]
+        # 先在model_dir里找，如果找不到就执行量化脚本
+        quantization: "fp8"
+        service_args:
+          common: "--model-format fp8  --quant-policy 16"
+
+##################################
+  Qwen3-30B-A3B:
+    model_info:
+      # 如果在model_dir里没找到，就去model_repo下载
+      model_repo:
+        model_id: 37389
+        version_id: 49790
+        project_id: 0  # 默认是0，从official仓库下载
+    service_info:
+      common:
+        # 放一些通用的service参数和测试case
+        service_args:
+          common: "--enable-prefix-caching"
+        test_data:
+          - prompt: "What is the capital of France?\n"
+            ground_truth:
+              a100: "Paris"
+              h100: "Paris"
+              t4: "Paris"
+              v100: "Paris"
+            verification: in
+          - prompt: "Please describe Shopee in short."
+            ground_truth:
+              h100: "<think>\nOkay, the user asked me to describe Shopee in short. Let me start by recalling what I know about Shopee. Shopee is an e-commerce platform"
+            verification: startswith
+      fp16:
+        target_gpus: ["h100"]  # 必须参数，设置可以在哪些GPU上跑，否则略过这个test case
+      fp16-kvint8:
+        target_gpus: ["h100"]
+        service_args:
+          common: "--quant-policy 8"
+      awq-w4a16-kvfp16:
+        target_gpus: ["h100", "v100"]
+        # 先在model_dir里找，如果找不到就执行量化脚本
+        quantization: "awq-w4a16"
+        service_args:
+          v100: "--cache-max-entry-count 0.7"

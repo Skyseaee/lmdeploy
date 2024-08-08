@@ -1,0 +1,1 @@
+../scripts/autoawq_quantize.py

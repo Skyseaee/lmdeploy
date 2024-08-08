@@ -201,8 +201,12 @@ class TurbomindEngineConfig:
             a k/v block, default to 64
         enable_prefix_caching (bool): enable cache prompts for block reuse,
             default to False
-        quant_policy (int): default to 0. When k/v is quantized into 4 or 8
-            bit, set it to 4 or 8, respectively
+        enable_expert_pruning (bool): enable moe expert pruning,
+            default to False
+        keep_expert_num (int): Only works when enable_expert_pruning is on, numbers of expert keeped,
+            default to 24
+        quant_policy (int): default to 0:kvfp16. When k/v is quantized into 4 or 8
+            bit, set it to 4:kvint4 or 8:kvint8 or 16:kvfp8-static or 32:kvfp8-dynamic, respectively
         rope_scaling_factor (float): scaling factor used for dynamic ntk,
             default to 0. TurboMind follows the implementation of transformer
             LlamaAttention
@@ -222,6 +226,10 @@ class TurbomindEngineConfig:
         devices(List[int]): the used devices
         empty_init (bool): Whether to load the model weights, you should set
             it to True if you want to update weights after create the pipeline
+        enable_expert_parallel (bool): enable expert parallelism for moe layer when tp > 1,
+            default to False
+        enable_attention_dp (bool): enable data parallelism for attention layer when tp > 1,
+            default to False
     """
 
     dtype: str = 'auto'
@@ -240,6 +248,8 @@ class TurbomindEngineConfig:
     cache_chunk_size: int = -1
     cache_block_seq_len: int = 64
     enable_prefix_caching: bool = False
+    enable_expert_pruning: bool = False
+    keep_expert_num: int = 24
     quant_policy: int = 0
     rope_scaling_factor: float = 0.0
     use_logn_attn: bool = False
@@ -251,6 +261,8 @@ class TurbomindEngineConfig:
     devices: Optional[List[int]] = None
     empty_init: bool = False
     communicator: str = 'nccl'
+    enable_expert_parallel: bool = False
+    enable_attention_dp: bool = False
 
     def __post_init__(self):
         """Check input validation."""
@@ -258,12 +270,20 @@ class TurbomindEngineConfig:
         assert self.tp >= 1, 'tp must be a positive integer'
         assert 0 < self.cache_max_entry_count < 1, \
             'invalid cache_max_entry_count'
-        assert self.quant_policy in (0, 4, 8), 'invalid quant_policy'
+        assert self.quant_policy in (0, 4, 8, 16, 32), 'invalid quant_policy'
         assert self.rope_scaling_factor >= 0, 'invalid rope_scaling_factor'
         assert self.max_prefill_token_num >= 0, \
             'invalid max_prefill_token_num'
         assert self.num_tokens_per_iter >= 0, 'invalid num_tokens_per_iter'
+        
+        def is_valid_tp(tp):
+            return tp > 1 and (tp & (tp - 1)) == 0
 
+        assert not self.enable_expert_parallel or is_valid_tp(self.tp), \
+            f'enable_expert_parallel={self.enable_expert_parallel}, but tp={self.tp} is invalid (must be power of 2 and >1)'
+            
+        assert not self.enable_attention_dp or is_valid_tp(self.tp), \
+            f'enable_attention_dp={self.enable_attention_dp}, but tp={self.tp} is invalid (must be power of 2 and >1)'
 
 @dataclass
 class PytorchEngineConfig:
@@ -444,7 +464,7 @@ class EngineOutput:
     last_hidden_state: torch.Tensor = None
 
     cache_block_ids: Optional[List[int]] = None
-
+    finish_reason: Optional[Literal['stop', 'length', 'tool_calls', 'end', 'unknown']] = None
 
 @dataclass
 class VisionConfig:
@@ -459,4 +479,5 @@ class VisionConfig:
             in a multi-threaded environment.
     """
     max_batch_size: int = 1
+    instance_num: int = 1
     thread_safe: bool = False

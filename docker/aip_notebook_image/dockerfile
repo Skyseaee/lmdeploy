@@ -1,0 +1,51 @@
+ARG ALLUXIO_VERSION=2.9.4
+ARG BASE_IMAGE_TAG
+FROM harbor.shopeemobile.com/aip/dataset-cache/alluxio-fuse:${ALLUXIO_VERSION} AS alluxio_fuse_archive
+
+# From NGC container
+FROM ${BASE_IMAGE_TAG}
+
+# Create a work user. Support experiment.
+RUN apt-get update && apt-get install -y sudo
+# RUN adduser --gecos '' --disabled-password work && \
+#    echo "work ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/nopasswd
+    
+# Support Notebook
+ENV INSTALL_DIR=/usr/lib/vscode-server
+ENV EXTENSION_DIR=/home/work/.vscode-server/extensions
+ENV DATA_DIR=/home/work/.vscode-server/data
+ENV ENTRYPOINT="$INSTALL_DIR/bin/vscode-server --host 0.0.0.0 --port 8080 --without-connection-token --extensions-dir=$EXTENSION_DIR --data-dir=$DATA_DIR"
+EXPOSE 8080
+ENV PATH=$INSTALL_DIR/bin:${PATH}
+
+# install jre
+RUN apt install -y --no-install-recommends fuse openjdk-11-jre-headless && \
+    apt-get update && \
+    apt-get install -y attr && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* && \
+    ln -s /usr/lib/jvm/java-11-openjdk-amd64/lib/jli/libjli.so /lib/x86_64-linux-gnu/libjli.so
+
+# install aip-dataset and ais for model download/upload to ais
+RUN pip install redis pyarrow==15.0.0 openai scikit-learn
+RUN pip install -U shopee-aip-datasets -i https://pypi.shopee.io/
+RUN pip install -U shopee-aip-dataset-mount -i https://pypi.shopee.io/
+RUN pip install https://pypi.shopee.io/packages/ds_toolkit-0.3.6-py3-none-any.whl
+RUN pip install -U shopee-ais -i https://pypi.garenanow.com/simple/ && curl https://rclone.org/install.sh | sudo bash
+
+# Paths Configurations
+ENV PATH=${PATH}:/home/work/.local/bin
+RUN export PATH
+RUN chown -R work:work /usr/local/*
+RUN chown -R work:work /opt/py3*
+WORKDIR /home/work
+USER work
+RUN git config --global http.proxy aiproxy.shopee.io:80
+
+# install hdfs
+COPY deploy_spark_driver_latest.sh /home/work/
+COPY deploy-hadoop-client-user-latest.sh /home/work
+RUN sudo bash deploy-hadoop-client-user-latest.sh us
+COPY hadoop-env.sh /etc/hadoop-2.10-client-batch/hadoop-env.sh
+ENV PATH=${PATH}:/usr/share/hadoop-client/bin
+RUN export PATH

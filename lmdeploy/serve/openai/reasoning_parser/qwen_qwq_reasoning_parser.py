@@ -7,8 +7,8 @@ from lmdeploy.serve.openai.protocol import ChatCompletionRequest, DeltaMessage
 from .reasoning_parser import ReasoningParser, ReasoningParserManager
 
 
-@ReasoningParserManager.register_module(name='qwen-qwq')
-class QwenQwQReasoningParser(ReasoningParser):
+@ReasoningParserManager.register_module(name='qwen')
+class QwenReasoningParser(ReasoningParser):
     """Reasoning parser for Qwen QwQ model.
 
     The Qwen QwQ model uses <think>...</think> tokens to denote reasoning text. This parser extracts the reasoning

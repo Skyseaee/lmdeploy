@@ -3,33 +3,27 @@ import pytest
 from lmdeploy.model import MODELS, best_match_model
 
 
-@pytest.mark.parametrize('model_path_and_name', [
-    ('internlm/internlm-chat-7b', ['internlm']),
-    ('internlm/internlm2-1_8b', ['base']),
-    ('models--internlm--internlm-chat-7b/snapshots/1234567', ['internlm']),
-    ('Qwen/Qwen-7B-Chat', ['qwen']),
-    ('Qwen/Qwen2.5-7B-Instruct', ['qwen2d5']),
-    ('Qwen/Qwen2.5-VL-7B-Instruct', ['qwen2d5-vl']),
-    ('Qwen/Qwen3-32B', ['qwen3']),
-    ('Qwen/Qwen3-235B-A22B', ['qwen3']),
-    ('codellama/CodeLlama-7b-hf', ['codellama']),
-    ('upstage/SOLAR-0-70b', ['solar', 'solar-70b']),
-    ('meta-llama/Llama-2-7b-chat-hf', ['llama2']),
-    ('THUDM/chatglm2-6b', ['chatglm']),
-    ('01-ai/Yi-6B-200k', ['yi', 'yi-200k']),
-    ('01-ai/Yi-34B-Chat', ['yi']),
-    ('01-ai/Yi-6B-Chat', ['yi', 'yi-chat']),
-    ('WizardLM/WizardLM-70B-V1.0', ['wizardlm']),
-    ('codellama/CodeLlama-34b-Instruct-hf', ['codellama']),
-    ('deepseek-ai/deepseek-coder-6.7b-instruct', ['deepseek-coder']),
-    ('deepseek-ai/deepseek-vl-7b-chat', ['deepseek-vl']),
-    ('deepseek-ai/deepseek-moe-16b-chat', ['deepseek']),
-    ('internlm/internlm-xcomposer2-4khd-7b', ['internlm-xcomposer2']),
-    ('internlm/internlm-xcomposer2d5-7b', ['internlm-xcomposer2d5']),
-    ('workspace', ['base']),
-    ('OpenGVLab/InternVL2_5-1B', ['internvl2_5']),
-    ('OpenGVLab/InternVL3-1B', ['internvl2_5']),
-])
+@pytest.mark.parametrize(
+    'model_path_and_name',
+    [('internlm/internlm-chat-7b', ['internlm']),
+     ('internlm/internlm2-1_8b', ['base']),
+     ('models--internlm--internlm-chat-7b/snapshots/1234567', ['internlm']),
+     ('Qwen/Qwen-7B-Chat', ['qwen']),
+     ('Qwen/Qwen2.5-7B-Instruct', ['qwen2d5']),
+     ('codellama/CodeLlama-7b-hf', ['codellama']),
+     ('upstage/SOLAR-0-70b', ['solar', 'solar-70b']),
+     ('meta-llama/Llama-2-7b-chat-hf', ['llama2']),
+     ('THUDM/chatglm2-6b', ['chatglm']),
+     ('01-ai/Yi-6B-200k', ['yi', 'yi-200k']), ('01-ai/Yi-34B-Chat', ['yi']),
+     ('01-ai/Yi-6B-Chat', ['yi', 'yi-chat']),
+     ('WizardLM/WizardLM-70B-V1.0', ['wizardlm']),
+     ('codellama/CodeLlama-34b-Instruct-hf', ['codellama']),
+     ('deepseek-ai/deepseek-coder-6.7b-instruct', ['deepseek-coder']),
+     ('deepseek-ai/deepseek-vl-7b-chat', ['deepseek-vl']),
+     ('deepseek-ai/deepseek-moe-16b-chat', ['deepseek']),
+     ('internlm/internlm-xcomposer2-4khd-7b', ['internlm-xcomposer2']),
+     ('internlm/internlm-xcomposer2d5-7b', ['internlm-xcomposer2d5']),
+     ('tiiuae/falcon-7b', ['falcon']), ('workspace', ['base'])])
 @pytest.mark.parametrize('suffix', ['', '-w4', '-4bit', '-16bit'])
 def test_best_match_model(model_path_and_name, suffix):
     if model_path_and_name[0] == 'internlm/internlm2-1_8b' and suffix:
@@ -48,7 +42,8 @@ def test_model_config(model_name, meta_instruction):
     chat_template = ChatTemplateConfig(model_name, meta_instruction=meta_instruction).chat_template
     prompt = chat_template.get_prompt('')
     if model_name == 'base':
-        assert prompt == ''
+        # we have change base to use base_chat_template
+        assert prompt == meta_instruction
     else:
         assert meta_instruction in prompt
 

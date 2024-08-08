@@ -47,6 +47,8 @@ htmlcov/
 lmdeploy/lib/
 lmdeploy/bin/
 dist/
+codetest/
+lmdeloy-test/
 examples/cpp/llama/*.csv
 *.npy
 *.weight
@@ -61,6 +63,7 @@ work_dir*/
 *config.json
 *generate_config.json
 !lmdeploy/turbomind/hf_repo/config.json
+ShareGPT_V3_unfiltered_cleaned_split.json
 
 # Pytorch
 *.pt
@@ -80,3 +83,5 @@ work_dir*/
 
 !CMakeLists.txt
 proxy_config.yml
+imagecache
+test_data
