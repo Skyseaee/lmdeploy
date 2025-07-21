@@ -410,8 +410,7 @@ async def chat_completions_v1(raw_request: Request = None):
                                   spaces_between_special_tokens=request.spaces_between_special_tokens,
                                   migration_request=migration_request,
                                   with_cache=with_cache,
-                                  preserve_cache=preserve_cache),
-
+                                  preserve_cache=preserve_cache)
     tools = None
     if request.tools and request.tool_choice != 'none':
         gen_config.skip_special_tokens = False
@@ -1067,9 +1066,9 @@ async def chat_interactive_v1(request: GenerateRequest, raw_request: Request = N
         await async_engine.end_session(session_id)
         return JSONResponse(dict(traceid=request.traceid, text='', tokens=0, input_tokens=0, history_tokens=0, finish_reason='stop', finished=True))
 
-    # logger.warn(f"len(async_engine.running_session_ids): {len(async_engine.running_session_ids)}")
-    if session_id == -1 or (sequence_start and session_id in async_engine.running_session_ids):
-        while session_id in async_engine.running_session_ids:
+    # logger.warn(f"len(async_engine.id2inst): {len(async_engine.id2inst)}")
+    if session_id == -1 or (sequence_start and session_id in async_engine.id2inst):
+        while session_id in async_engine.id2inst:
             VariableInterface.session_id += 1
             session_id = VariableInterface.session_id
 
