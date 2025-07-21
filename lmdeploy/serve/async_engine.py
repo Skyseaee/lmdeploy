@@ -741,7 +741,6 @@ class AsyncEngine(LogitsMixin):
             # Figure out a graceful way to handle the invalid input
             prompt_input = dict(input_ids=input_ids)
 
-#        import ipdb; ipdb.set_trace()
         if gen_config.max_new_tokens is None:
             # for interactive endpoint, will try maximum possible token num
             gen_config.max_new_tokens = max(128, self.session_len - self.id2step[session_id] - len(input_ids))

@@ -68,7 +68,7 @@ if [ $precision = fp16 ] || [ $precision = w4a16 ] || \
     --server-port ${service_port} \
     --tp ${gpu_num} \
     --cache-max-entry-count 0.9 \
-    --session-len 4096 \
+    --session-len 16384 \
     --max-batch-size 256 ${extra_args} # --enable-prefix-caching
 
 else

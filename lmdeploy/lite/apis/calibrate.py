@@ -264,9 +264,6 @@ def calibrate(model: str,
 
     if model_type == 'llm':
         model = load_hf_from_pretrained(model, dtype=dtype, trust_remote_code=True)
-        model = load_hf_from_pretrained(model,
-                                        dtype="auto",
-                                        trust_remote_code=True)
         vl_model = None
     elif model_type == 'vlm':
         vl_model = load_vl_model(model, backend=None, with_llm=True).vl_model

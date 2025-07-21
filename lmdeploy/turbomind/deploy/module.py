@@ -333,6 +333,9 @@ class Misc(Module):
         if norm_weight is not None:
             self.model.export_weight(norm_weight, 'norm.weight')
         if output_weight is not None:
+            if self.model.model_config.use_normhead:
+                logger.info('use_normhead=True, normalize weights')
+                output_weight = torch.nn.functional.normalize(output_weight)
             tp = self.model.attn_tp_size
             output_weight = pad_weight(output_weight, tp=tp)
             # transpose

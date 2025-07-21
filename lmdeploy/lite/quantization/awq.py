@@ -33,10 +33,6 @@ NORM_FCS_MAP = {
         'input_layernorm': ['self_attn.k_proj', 'self_attn.q_proj', 'self_attn.v_proj'],
         'post_attention_layernorm': ['mlp.gate_proj', 'mlp.up_proj']
     },
-    'Qwen3DecoderLayer': {
-        'input_layernorm': ['self_attn.k_proj', 'self_attn.q_proj', 'self_attn.v_proj'],
-        'post_attention_layernorm': ['mlp.gate_proj', 'mlp.up_proj']
-    },
     'Qwen3MoeDecoderLayer': {
         'input_layernorm': ['self_attn.k_proj', 'self_attn.q_proj', 'self_attn.v_proj'],
         'post_attention_layernorm': ['mlp.experts.{i}.gate_proj', 'mlp.experts.{i}.up_proj']
