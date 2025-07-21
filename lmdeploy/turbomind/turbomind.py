@@ -289,11 +289,7 @@ class TurboMind:
         model_comm = _tm.AbstractTransformerModel.create_llama_model(
             model_dir='',
             config=yaml.safe_dump(self.config_dict),
-            weight_type=self.config.model_config.weight_type,
-            tensor_para_size=engine_config.tp,
-            enable_expert_parallel=engine_config.enable_expert_parallel,
-            enable_attention_dp=engine_config.enable_attention_dp,
-            data_type=data_type)
+            weight_type=data_type)
 
         # create empty weight
         self._create_weight(model_comm)
@@ -359,11 +355,7 @@ class TurboMind:
         model_comm = _tm.AbstractTransformerModel.create_llama_model(
             model_dir=weight_dir,
             config=yaml.safe_dump(self.config_dict),
-            weight_type=self.config.weight_type,
-            tensor_para_size=engine_config.tp,
-            enable_expert_parallel=engine_config.enable_expert_parallel,
-            enable_attention_dp=engine_config.enable_attention_dp,
-            data_type=data_type)
+            weight_type=data_type)
 
         # create weight and load params
         self._create_weight(model_comm)
