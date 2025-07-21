@@ -376,53 +376,6 @@ class CompassSMoeLLM(BaseModel):
         if "compass-max" in model_path:
             return "compass-max"
 
-@MODELS.register_module(name=['deepseek-v3'])
-class DeepseekV3(BaseChatTemplate):
-
-    def __init__(self, user='<｜User｜>', assistant='<｜Assistant｜>', eoa='<｜end▁of▁sentence｜>', **kwargs):
-        super().__init__(user=user, assistant=assistant, eoa=eoa, **kwargs)
-
-    def get_prompt(self, prompt, sequence_start=True):
-        if sequence_start:
-            return '<｜begin▁of▁sentence｜>' + super().get_prompt(prompt, sequence_start)
-        return super().get_prompt(prompt, sequence_start)
-
-    def messages2prompt(self, messages, sequence_start=True, **kwargs):
-        if sequence_start and not isinstance(messages, str):
-            return '<｜begin▁of▁sentence｜>' + super().messages2prompt(messages, sequence_start, **kwargs)
-        return super().messages2prompt(messages, sequence_start, **kwargs)
-
-    @classmethod
-    def match(cls, model_path: str) -> Optional[str]:
-        """Return the model_name that was registered to MODELS.
-
-        Args:
-            model_path (str): the model path used for matching.
-        """
-        path = model_path.lower()
-        if 'deepseek-v3' in path:
-            return 'deepseek-v3'
-
-
-@MODELS.register_module(name=['deepseek-r1'])
-class DeepseekR1(DeepseekV3):
-
-    def messages2prompt(self, messages, sequence_start=True, **kwargs):
-        if sequence_start and not isinstance(messages, str):
-            return super().messages2prompt(messages, sequence_start, **kwargs) + '<think>\n'
-        return super().messages2prompt(messages, sequence_start, **kwargs)
-
-    @classmethod
-    def match(cls, model_path: str) -> Optional[str]:
-        """Return the model_name that was registered to MODELS.
-
-        Args:
-            model_path (str): the model path used for matching.
-        """
-        path = model_path.lower()
-        if 'deepseek-r1' in path:
-            return 'deepseek-r1'
-
 
 @MODELS.register_module(name=['deepseek-v3'])
 class DeepseekV3(BaseChatTemplate):
@@ -2316,5 +2269,5 @@ def best_match_model(query: str) -> Optional[str]:
         matched_name = model.match(query)  # cache the result to avoid matching twice
         if matched_name:
             return matched_name
-    logger.warning(f'Did not find a chat template matching {query}.')
+    logger.warn(f'Did not find a chat template matching {query}.')
     return 'base'

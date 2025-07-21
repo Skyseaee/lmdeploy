@@ -9,11 +9,12 @@ COPY --from=file-copy /files/huggingface-cache /root/.cache/huggingface
 RUN apt-get update && apt-get install -y sudo
 RUN adduser --gecos '' --disabled-password work && echo "work ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/nopasswd
 
+ARG PYTHON_INSTALL_PATH=/opt/py3
 RUN apt-get install -y --no-install-recommends \
     rapidjson-dev libgoogle-glog-dev gdb python3.10-venv \
-    && rm -rf /var/lib/apt/lists/* && cd /opt && python3 -m venv py3
+    && rm -rf /var/lib/apt/lists/* && python3 -m venv ${PYTHON_INSTALL_PATH}
 
-ENV PATH=/opt/py3/bin:$PATH
+ENV PATH=${PYTHON_INSTALL_PATH}/bin:$PATH
 
 RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools==69.5.1 &&\
     python3 -m pip install --no-cache-dir torch==2.7.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cu126 &&\
@@ -30,7 +31,7 @@ COPY . /opt/lmdeploy
 WORKDIR /opt/lmdeploy
 
 RUN cd /opt/lmdeploy &&\
-    python3 -m pip install --no-cache-dir -r requirements.txt &&\
+    python3 -m pip install --no-cache-dir -r requirements_cuda.txt &&\
     mkdir -p build && cd build &&\
     cmake -G Ninja .. \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
@@ -39,13 +40,17 @@ RUN cd /opt/lmdeploy &&\
         -DBUILD_PY_FFI=ON \
         -DBUILD_MULTI_GPU=ON \
         -DCMAKE_CUDA_FLAGS="-lineinfo" \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DUSE_NVTX=ON \
-        -DENABLE_FP8=ON \
+        -DENABLE_FP8=OFF \
         -DCUTLASS_FP8=ON \
         -DFUSED_GATED_GEMM=ON \
         -DFUSED_MOE_FFN_GEMM=ON &&\
     ninja -j$(nproc) && ninja install &&\
     cd .. && python3 -m pip install .
+
+# for torch 2.7.0 import error: undefined symbol: __nvjitlinkgeterrorlog_12_6
+ENV LD_LIBRARY_PATH=${PYTHON_INSTALL_PATH}/lib/python3.10/site-packages/nvidia/nvjitlink/lib:$LD_LIBRARY_PATH
 
 ENV LD_LIBRARY_PATH=/opt/tritonserver/lib:$LD_LIBRARY_PATH
 # explicitly set ptxas path for triton
@@ -59,7 +64,7 @@ RUN rsync -avL scripts_maas/ /workspace/scripts
 RUN pip install -U shopee-ais -i https://pypi.garenanow.com/simple/ && curl https://rclone.org/install.sh | sudo bash
 
 # ais-kvcache-sdk -> lmcache -> torch==2.7.0
-RUN python3 -m pip install lmcache==0.3.0
+# RUN python3 -m pip install lmcache==0.3.0
 RUN python3 -m pip install shopee-ais-kvcache-sdk -i https://pypi.shopee.io/
 RUN python3 -m pip install --no-cache-dir pytest matplotlib
 RUN mkdir -p /workspace/tests

@@ -15,14 +15,20 @@ if [ $# != 1 ]; then
   exit
 fi
 
-VERSION=$(grep '^__version__' ../lmdeploy/version.py | grep -o '=.*' | tr -d "= '")
+if [ "$(pip list | grep setuptools-scm | wc -l)" -eq "0"  ]; then
+  python3 -m pip install setuptools-scm
+fi
+
+VERSION=$(python3 -c "from setuptools_scm import get_version; print(get_version(version_scheme='no-guess-dev'))")
+VERSION=$(echo "$VERSION" | sed 's/\.d[0-9]\{8\}//' | sed 's/+\(g\)\?/-/')
+
 IMAGE_TAG=harbor.shopeemobile.com/aip/shopee-mlp-aip-llm-generater-lmdeploy:${VERSION}
 
 if [ $1 = src ]; then
-  docker build  -t ${IMAGE_TAG} -f ../docker/Dockerfile.aip ..
+  docker build  -t ${IMAGE_TAG} -f docker/Dockerfile_cu125.aip .
 
 elif [ $1 = pip ]; then
-  docker build -t ${IMAGE_TAG} -f Dockerfile .
+  docker build -t ${IMAGE_TAG} -f docker/Dockerfile .
 
 else
   echo "Installation type only supports src or pip"

@@ -143,10 +143,6 @@ class SubCliServe:
         ArgumentHelper.tool_call_parser(parser)
         ArgumentHelper.reasoning_parser(parser)
 
-        # parsers
-        ArgumentHelper.tool_call_parser(parser)
-        ArgumentHelper.reasoning_parser(parser)
-
         # model args
         ArgumentHelper.revision(parser)
         ArgumentHelper.download_dir(parser)
@@ -371,32 +367,32 @@ class SubCliServe:
         chat_template_config = get_chat_template(args.chat_template)
 
         from lmdeploy.messages import VisionConfig
-        vision_config = VisionConfig(max_batch_size=args.vision_max_batch_size, 
+        vision_config = VisionConfig(max_batch_size=args.vision_max_batch_size,
                                      instance_num=args.vision_instance_num)
         if args.dp == 1:
             from lmdeploy.serve.openai.api_server import serve as run_api_server
-                run_api_server(args.model_path,
-                            model_name=args.model_name,
-                            backend=backend,
-                            backend_config=backend_config,
-                            chat_template_config=chat_template_config,
-                            vision_config=vision_config,
-                            server_name=args.server_name,
-                            server_port=args.server_port,
-                            allow_origins=args.allow_origins,
-                            allow_credentials=args.allow_credentials,
-                            allow_methods=args.allow_methods,
-                            allow_headers=args.allow_headers,
-                            allow_terminate_by_client=args.allow_terminate_by_client,
-                            log_level=args.log_level.upper(),
-                            api_keys=args.api_keys,
-                            ssl=args.ssl,
-                            proxy_url=args.proxy_url,
-                            max_log_len=args.max_log_len,
-                            disable_fastapi_docs=args.disable_fastapi_docs,
-                            max_concurrent_requests=args.max_concurrent_requests,
-                            reasoning_parser=args.reasoning_parser,
-                            tool_call_parser=args.tool_call_parser)
+            run_api_server(args.model_path,
+                        model_name=args.model_name,
+                        backend=backend,
+                        backend_config=backend_config,
+                        chat_template_config=chat_template_config,
+                        vision_config=vision_config,
+                        server_name=args.server_name,
+                        server_port=args.server_port,
+                        allow_origins=args.allow_origins,
+                        allow_credentials=args.allow_credentials,
+                        allow_methods=args.allow_methods,
+                        allow_headers=args.allow_headers,
+                        allow_terminate_by_client=args.allow_terminate_by_client,
+                        log_level=args.log_level.upper(),
+                        api_keys=args.api_keys,
+                        ssl=args.ssl,
+                        proxy_url=args.proxy_url,
+                        max_log_len=args.max_log_len,
+                        disable_fastapi_docs=args.disable_fastapi_docs,
+                        max_concurrent_requests=args.max_concurrent_requests,
+                        reasoning_parser=args.reasoning_parser,
+                        tool_call_parser=args.tool_call_parser)
         else:
             from lmdeploy.serve.openai.launch_server import launch_server
 

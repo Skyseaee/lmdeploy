@@ -15,6 +15,8 @@
 cmake_minimum_required(VERSION 3.11 FATAL_ERROR) # for PyTorch extensions, version should be greater than 3.13
 project(TurboMind LANGUAGES CXX CUDA)
 
+find_package(CUDA 10.2 REQUIRED)
+
 if (MSVC)
     # use standard conformant preprocessor
     add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/Zc:preprocessor>)
@@ -32,6 +34,7 @@ option(ENABLE_FP8 "ENABLE_FP8" OFF)
 option(CUTLASS_FP8 "CUTLASS_FP8" OFF)
 option(FUSED_GATED_GEMM "FUSED_GATED_GEMM" OFF)
 option(FUSED_MOE_FFN_GEMM "FUSED_MOE_FFN_GEMM" OFF)
+message(STATUS "CUDA Version: ${CUDA_VERSION_MAJOR}.${CUDA_VERSION_MINOR}")
 
 if(ENABLE_FP8)
   if((${CUDA_VERSION_MAJOR} VERSION_GREATER_EQUAL "11" AND ${CUDA_VERSION_MINOR} VERSION_GREATER_EQUAL "8") OR(${CUDA_VERSION_MAJOR} VERSION_GREATER_EQUAL "12"))
@@ -83,7 +86,7 @@ if(BUILD_TEST OR CUTLASS_FP8 OR FUSED_GATED_GEMM OR FUSED_MOE_FFN_GEMM)
     GIT_REPOSITORY https://github.com/NVIDIA/cutlass.git
 
     # GIT_TAG        6f47420213f757831fae65c686aa471749fa8d60   # FALSH ATTENTION2
-    GIT_TAG f7b19de32c5d1f3cedfc735c2849f12b537522ee # CUTLASS 3.x support FP8 Gemm
+    GIT_TAG v3.9.2 # f7b19de32c5d1f3cedfc735c2849f12b537522ee # CUTLASS 3.x support FP8 Gemm
     GIT_SHALLOW ON
   )
 
@@ -288,60 +291,60 @@ add_library(transformer-shared SHARED
   $<TARGET_OBJECTS:DynamicDecodeLayer>
   $<TARGET_OBJECTS:Llama>
   $<TARGET_OBJECTS:LlamaTritonBackend>
-  $<TARGET_OBJECTS:TransformerTritonBackend>
+#  $<TARGET_OBJECTS:TransformerTritonBackend>
   $<TARGET_OBJECTS:activation_kernels>
   $<TARGET_OBJECTS:ban_bad_words>
-  $<TARGET_OBJECTS:cublasAlgoMap>
-  $<TARGET_OBJECTS:cublasMMWrapper>
+#  $<TARGET_OBJECTS:cublasAlgoMap>
+#  $<TARGET_OBJECTS:cublasMMWrapper>
   $<TARGET_OBJECTS:cuda_utils>
-  $<TARGET_OBJECTS:custom_ar_comm>
-  $<TARGET_OBJECTS:custom_ar_kernels>
+#  $<TARGET_OBJECTS:custom_ar_comm>
+#  $<TARGET_OBJECTS:custom_ar_kernels>
   $<TARGET_OBJECTS:attention>
   $<TARGET_OBJECTS:decoding_kernels>
   $<TARGET_OBJECTS:gpt_kernels>
   $<TARGET_OBJECTS:logprob_kernels>
   $<TARGET_OBJECTS:logger>
   $<TARGET_OBJECTS:memory_utils>
-  $<TARGET_OBJECTS:mpi_utils>
-  $<TARGET_OBJECTS:nccl_utils>
+#  $<TARGET_OBJECTS:mpi_utils>
+#  $<TARGET_OBJECTS:nccl_utils>
   $<TARGET_OBJECTS:nvtx_utils>
   $<TARGET_OBJECTS:anomaly_handler>
   $<TARGET_OBJECTS:sampling_penalty_kernels>
   $<TARGET_OBJECTS:sampling_topk_kernels>
   $<TARGET_OBJECTS:sampling_topp_kernels>
   $<TARGET_OBJECTS:stop_criteria>
-  $<TARGET_OBJECTS:tensor>
+#  $<TARGET_OBJECTS:tensor>
   $<TARGET_OBJECTS:unfused_attention_kernels>
-  $<TARGET_OBJECTS:rng_utils>
+#  $<TARGET_OBJECTS:rng_utils>
   $<TARGET_OBJECTS:rms_norm>
 )
 
-if(ENABLE_FP8)
-  target_link_libraries(transformer-shared PUBLIC
-    $<TARGET_OBJECTS:cublasFP8MMWrapper>
-    $<TARGET_OBJECTS:cuda_fp8_utils>
-  )
-endif()
-
-if(CUTLASS_FP8)
-  target_link_libraries(transformer-shared PUBLIC
-    $<TARGET_OBJECTS:cutlass_w8a8>
-  )
-endif()
-
-if(FUSED_GATED_GEMM)
-  target_link_libraries(transformer-shared PUBLIC
-    $<TARGET_OBJECTS:fused_gated_gemm>
-    $<TARGET_OBJECTS:gemm_profiler>
-  )
-endif()
-
-if(FUSED_MOE_FFN_GEMM)
-  target_link_libraries(transformer-shared PUBLIC
-    $<TARGET_OBJECTS:mixture_of_experts>
-    $<TARGET_OBJECTS:gemm_profiler>
-  )
-endif()
+#if(ENABLE_FP8)
+#  target_link_libraries(transformer-shared PUBLIC
+#    $<TARGET_OBJECTS:cublasFP8MMWrapper>
+#    $<TARGET_OBJECTS:cuda_fp8_utils>
+#  )
+#endif()
+#
+#if(CUTLASS_FP8)
+#  target_link_libraries(transformer-shared PUBLIC
+#    $<TARGET_OBJECTS:cutlass_w8a8>
+#  )
+#endif()
+#
+#if(FUSED_GATED_GEMM)
+#  target_link_libraries(transformer-shared PUBLIC
+#    $<TARGET_OBJECTS:fused_gated_gemm>
+#    $<TARGET_OBJECTS:gemm_profiler>
+#  )
+#endif()
+#
+#if(FUSED_MOE_FFN_GEMM)
+#  target_link_libraries(transformer-shared PUBLIC
+#    $<TARGET_OBJECTS:mixture_of_experts>
+#    $<TARGET_OBJECTS:gemm_profiler>
+#  )
+#endif()
 
 if (BUILD_MULTI_GPU)
 target_link_libraries(transformer-shared PUBLIC
