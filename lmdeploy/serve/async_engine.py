@@ -726,12 +726,12 @@ class AsyncEngine(LogitsMixin):
             input_ids = prompt_input['input_ids']
             finish_reason = None
             self.request_logger.log_inputs(session_id=session_id,
-                                        prompt=prompt,
-                                        prompt_token_ids=input_ids,
-                                        gen_config=gen_config,
-                                        adapter_name=adapter_name)
+                                           prompt=prompt,
+                                           prompt_token_ids=input_ids,
+                                           gen_config=gen_config,
+                                           adapter_name=adapter_name)
             # logger.info(f'session_id={session_id}, '
-            #             f'history_tokens={self.id2step[str(session_id)]}, '
+            #             f'history_tokens={self.id2step[session_id]}, '
             #             f'input_tokens={len(input_ids)}, '
             #             f'max_new_tokens={gen_config.max_new_tokens}, '
             #             f'seq_start={sequence_start}, seq_end={sequence_end}, '
@@ -741,11 +741,12 @@ class AsyncEngine(LogitsMixin):
             # Figure out a graceful way to handle the invalid input
             prompt_input = dict(input_ids=input_ids)
 
+#        import ipdb; ipdb.set_trace()
         if gen_config.max_new_tokens is None:
             # for interactive endpoint, will try maximum possible token num
-            gen_config.max_new_tokens = max(128, self.session_len - self.id2step[str(session_id)] - len(input_ids))
-        elif self.id2step[str(session_id)] + len(input_ids) + gen_config.max_new_tokens > self.session_len:
-            gen_config.max_new_tokens = max(self.session_len - self.id2step[str(session_id)] - len(input_ids), 128)
+            gen_config.max_new_tokens = max(128, self.session_len - self.id2step[session_id] - len(input_ids))
+        elif self.id2step[session_id] + len(input_ids) + gen_config.max_new_tokens > self.session_len:
+            gen_config.max_new_tokens = max(self.session_len - self.id2step[session_id] - len(input_ids), 128)
             logger.error(f'Truncate max_new_tokens to {gen_config.max_new_tokens}')
 
         if len(input_ids) < 1:
@@ -759,13 +760,13 @@ class AsyncEngine(LogitsMixin):
                         f'ignore_eos: {gen_config.ignore_eos}, finish_reason: {finish_reason}, finished: {True}, '
                         f'preprocess_time: {preprocess_time:0.2f}, total_time: {cost_time:0.2f}'
                         )
-            yield GenOut(warn_msg, self.id2step[str(session_id)], len(input_ids), 0,
+            yield GenOut(warn_msg, self.id2step[session_id], len(input_ids), 0,
                          finish_reason, cost_time=cost_time, finished=True)
             if sequence_end is True and sequence_start is False:
                 await self.end_session(session_id)
             return
 
-        if self.id2step[str(session_id)] + len(input_ids) + gen_config.max_new_tokens > self.session_len:
+        if self.id2step[session_id] + len(input_ids) + gen_config.max_new_tokens > self.session_len:
             warn_msg = f'run out of tokens. session_id={session_id}'
             logger.warn(warn_msg)
             finish_reason = 'length'
@@ -778,7 +779,7 @@ class AsyncEngine(LogitsMixin):
                         f'ignore_eos: {gen_config.ignore_eos}, finish_reason: {finish_reason}, finished: {True}, '
                         f'preprocess_time: {preprocess_time:0.2f}, total_time: {cost_time:0.2f}'
                         )
-            yield GenOut(warn_msg, self.id2step[str(session_id)], len(input_ids), 0,
+            yield GenOut(warn_msg, self.id2step[session_id], len(input_ids), 0,
                          finish_reason, cost_time=cost_time, finished=True)
             if sequence_end is True and sequence_start is False:
                 await self.end_session(session_id)
@@ -786,7 +787,7 @@ class AsyncEngine(LogitsMixin):
 
         def is_error(status):
             return status not in [ResponseType.SUCCESS, ResponseType.FINISH]
-        
+
         # used to skip / rewind stop words in interactive mode
         stop_ids = []
         if skip_stop_tokens and not gen_config.ignore_eos:
