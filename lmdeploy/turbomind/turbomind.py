@@ -168,7 +168,7 @@ class TurboMind:
         tm_params = self._tm_model.tm_params
         if len(tm_params) > 0:
             uninitialized = list(tm_params.keys())
-            logger.warning('the model may not be loaded successfully '
+            logger.warn('the model may not be loaded successfully '
                            f'with {len(tm_params)} uninitialized params:\n{uninitialized}')
 
     def _load_weights(self, model_source: ModelSource):
@@ -316,19 +316,19 @@ class TurboMind:
         assert cfg.model_config.attn_tp_size == engine_config.attn_tp_size, \
             f'tp size mismatch ({cfg.model_config.attn_tp_size} vs {engine_config.attn_tp_size})'
         if cfg.tensor_para_size != engine_config.tp:
-            logger.warning(
+            logger.warn(
                 'tp in engine_config is different from in config.yaml'
                 f'({config_path}), {engine_config.tp} vs '
                 f'{cfg.tensor_para_size}, using tp={cfg.tensor_para_size}')
 
         if cfg.enable_expert_parallel != engine_config.enable_expert_parallel:
-            logger.warning(
+            logger.warn(
                 'enable_expert_parallel in engine_config is different from in config.yaml'
                 f'({config_path}), {engine_config.enable_expert_parallel} vs '
                 f'{cfg.enable_expert_parallel}, using enable_expert_parallel={cfg.enable_expert_parallel}')
 
         if cfg.enable_attention_dp != engine_config.enable_attention_dp:
-            logger.warning(
+            logger.warn(
                 'enable_attention_dp in engine_config is different from in config.yaml'
                 f'({config_path}), {engine_config.enable_attention_dp} vs '
                 f'{cfg.enable_attention_dp}, using enable_attention_dp={cfg.enable_attention_dp}')
@@ -791,7 +791,7 @@ class TurboMindInstance:
         if cfg.logprobs:
             if cfg.logprobs > MAX_LOGPROBS:
                 cfg.logprobs = MAX_LOGPROBS
-                logger.warning(f'logprobs shoudd be in range [1, {MAX_LOGPROBS}]'
+                logger.warn(f'logprobs shoudd be in range [1, {MAX_LOGPROBS}]'
                                f'update logprobs={cfg.logprobs}')
             c.output_logprobs = cfg.logprobs
         if cfg.random_seed is not None:

@@ -1044,7 +1044,7 @@ class AsyncEngine(LogitsMixin):
         if self.engine.end_session(session_id):
             logger.debug(f'successfully free session {session_id}')
         else:
-            logger.warning(f'Invalid Free session {session_id}.')
+            logger.warn(f'Invalid Free session {session_id}.')
 
     def p2p_initialize(self, init_request: DistServeInitRequest):
         return self.engine.p2p_initialize(init_request)
