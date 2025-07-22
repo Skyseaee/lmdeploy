@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <functional>
 #include <memory>
+#include <vector>
 #include <type_traits>
 #include <utility>
 
@@ -77,6 +78,14 @@ auto ModelRequest::Forward(InputParam param, std::function<void()> cb) -> Output
 
     add(outputs_, "output_ids", data_type_v<int>, kCPU, max_seq_len);
     add(outputs_, "sequence_length", data_type_v<int>, kCPU, 1);
+    add(outputs_, "running_reqs_num", data_type_v<int>, kCPU, 1);
+    add(outputs_, "total_reqs_num", data_type_v<int>, kCPU, 1);
+    add(outputs_, "free_gpu_blocks", data_type_v<int>, kCPU, 1);
+    add(outputs_, "total_gpu_blocks", data_type_v<int>, kCPU, 1);
+    add(outputs_, "engine_start", data_type_v<double>, kCPU, 1);
+    add(outputs_, "engine_scheduled", data_type_v<double>, kCPU, 1);
+
+    // change output
 
     if (param.gen_cfg.output_logits) {
         const int len = param.gen_cfg.output_logits == GenerationConfig::kAll ? max_in_out_len : max_out_len;
@@ -118,6 +127,10 @@ auto ModelRequest::Forward(InputParam param, std::function<void()> cb) -> Output
 
     r->output_ids      = outputs_->at("output_ids");
     r->sequence_length = outputs_->at("sequence_length");
+
+    // r->updateEngineCoreEvent(EngineCoreEventType::kEventStart);
+    auto engine_start = r->outputs.at("engine_start").data<double>();
+    *engine_start = current_timestamp();
 
     // Keep a weak reference for canceling the request
     request_ = r;

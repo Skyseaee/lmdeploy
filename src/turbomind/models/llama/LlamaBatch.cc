@@ -246,6 +246,9 @@ void LlamaBatch::ProcessInferRequests(const Requests& reqs, std::vector<Signal>&
 
         state.requests[idx]  = r;
         state.sequences[idx] = ptr;
+        // r->updateEngineCoreEvent(EngineCoreEventType::kScheduled);
+        auto engine_scheduled = state_->requests[i]->outputs.at("engine_scheduled").data<int32_t>();
+        *engine_scheduled = current_timestamp();
 
         auto& seq = *state.sequences[idx];
 
@@ -1149,6 +1152,10 @@ void LlamaBatch::Finish(GenerationState& g, std::vector<Signal>& signals)
                 auto logprob_vals    = state_->requests[i]->outputs.at("logprob_vals").data<float>();
                 auto logprob_indexes = state_->requests[i]->outputs.at("logprob_indexes").data<int32_t>();
                 auto logprob_nums    = state_->requests[i]->outputs.at("logprob_nums").data<int32_t>();
+                auto cur_running_reqs_num = state_->requests[i]->outputs.at("running_reqs_num").data<int32_t>();
+                auto cur_total_reqs_num = state_->requests[i]->outputs.at("total_reqs_num").data<int32_t>();
+                auto free_gpu_blocks = state_->requests[i]->outputs.at("free_gpu_blocks").data<int32_t>();
+                auto total_gpu_blocks = state_->requests[i]->outputs.at("total_gpu_blocks").data<int32_t>();
 
                 int offset = state_->h_context_length[i] - state_->h_prompt_length[i] - 1;
                 std::copy(sampled_logprobs_ptr,
@@ -1158,6 +1165,10 @@ void LlamaBatch::Finish(GenerationState& g, std::vector<Signal>& signals)
                           sampled_indexes_ptr + *sampled_nums_ptr,
                           logprob_indexes + offset * kMaxLogProb);
                 *(logprob_nums + offset) = *sampled_nums_ptr;
+                *cur_running_reqs_num = state_->active_size;
+                *cur_total_reqs_num = state_->size;
+                *free_gpu_blocks = sequence_manager_->GetFreeBlockCount();
+                *total_gpu_blocks = sequence_manager_->GetTotalBlockCount();
             }
             sampled_logprobs_ptr += kMaxLogProb;
             sampled_indexes_ptr += kMaxLogProb;

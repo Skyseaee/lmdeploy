@@ -356,7 +356,7 @@ class AsyncEngine(LogitsMixin):
 
         if getattr(self.backend_config, 'enable_metrics', False):
             from lmdeploy.metrics.loggers import LoggingStatLogger, PrometheusStatLogger
-            dp_rank = self.backend_config.dp_rank if self.backend_config.dp else 0
+            dp_rank = self.backend_config.dp_rank if self.backend_config.dp and hasattr(self.backend_config, 'dp_rank') else 0
 
             logger.info(f'enable metrics, with dp: {self.backend_config.dp} dp_rank: {dp_rank}')
             self.stat_loggers = [

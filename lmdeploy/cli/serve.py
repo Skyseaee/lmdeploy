@@ -357,7 +357,8 @@ class SubCliServe:
                                                    enable_prefix_caching=args.enable_prefix_caching,
                                                    max_prefill_token_num=args.max_prefill_token_num,
                                                    communicator=args.communicator,
-                                                   hf_overrides=args.hf_overrides)
+                                                   hf_overrides=args.hf_overrides,
+                                                   enable_metrics=args.enable_metrics)
         chat_template_config = get_chat_template(args.chat_template)
 
         from lmdeploy.messages import VisionConfig
