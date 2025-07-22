@@ -281,15 +281,10 @@ class TurboMind:
 
         self._postprocess_config(tm_model.tm_config, engine_config)
 
-        if self.config_dict['model_config']['weight_type'] == 'int4':
-            data_type = 'float16'
-        else:
-            data_type=self.config_dict['model_config']['torch_dtype']
-
         model_comm = _tm.AbstractTransformerModel.create_llama_model(
             model_dir='',
             config=yaml.safe_dump(self.config_dict),
-            weight_type=data_type)
+            weight_type=self.config.model_config.weight_type)
 
         # create empty weight
         self._create_weight(model_comm)
@@ -345,17 +340,12 @@ class TurboMind:
 
         self._postprocess_config(cfg, engine_config)
 
-        if self.config_dict['model_config']['weight_type'] == 'int4':
-            data_type = 'float16'
-        else:
-            data_type=self.config_dict['model_config']['torch_dtype']
-
         weight_dir = osp.join(model_path, 'triton_models', 'weights')
 
         model_comm = _tm.AbstractTransformerModel.create_llama_model(
             model_dir=weight_dir,
             config=yaml.safe_dump(self.config_dict),
-            weight_type=data_type)
+            weight_type=self.config.model_config.weight_type)
 
         # create weight and load params
         self._create_weight(model_comm)
