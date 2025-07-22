@@ -189,12 +189,12 @@ class CompassLLVM_V1d6(VisonModel):
             2: transforms.InterpolationMode.BILINEAR,
             3: transforms.InterpolationMode.BICUBIC,
         }
-        if hasattr(self.hf_config.vision_config, "resample"):
-            resample_mode = resample_dict[int(self.hf_config.vision_config.resample)]
-        else:
-            resample_mode = transforms.InterpolationMode.BILINEAR
+        # if hasattr(self.hf_config.vision_config, "resample"):
+        #     resample_mode = resample_dict[int(self.hf_config.vision_config.resample)]
+        # else:
+        resample_mode = transforms.InterpolationMode.BILINEAR
 
-        self.transform = transforms.Compose([
+        self.image_transform = transforms.Compose([
             transforms.Lambda(lambda img: img.convert('RGB')
                         if img.mode != 'RGB' else img),
             transforms.Resize((input_size, input_size),
@@ -206,7 +206,7 @@ class CompassLLVM_V1d6(VisonModel):
         
     def build_model(self):
         """Load model."""
-        from accelerate import init_empty_weights
+        from accelerate import init_empty_weights, load_checkpoint_and_dispatch
         with init_empty_weights():
             self.model_dtype = self.hf_config.torch_dtype
             if VLM_ENABLE_TRT:
@@ -219,7 +219,6 @@ class CompassLLVM_V1d6(VisonModel):
                 self.vl_model = model
             model.to(dtype=self.model_dtype)
 
-        from accelerate import load_checkpoint_and_dispatch
         with disable_logging():
             if self.with_llm:
                 model.language_model.tie_weights()
@@ -248,22 +247,24 @@ class CompassLLVM_V1d6(VisonModel):
             logger.warning("✨CompassLLVM v1.6 enable_image_torch")
             self.vision_model = self.model.vision_model
 
-    def preprocess(self, messages: List[Dict]):
+    def preprocess(self, messages: List[Dict]) -> List[Dict]:
         image_res = {'low': 1, 'medium': 6, 'high': 12}
         outputs = []
         images = self.collect_images(messages)
         for image, param in images:
-            image = image.convert('RGB')
             max_num = param.get('max_dynamic_patch')
             if max_num is None or not isinstance(max_num, int):
                 res_key = param.get('detail', 'default')
                 max_num = image_res.get(res_key, self.config.max_dynamic_patch)
+            
+            image = image.convert('RGB')
             patch_images = dynamic_preprocess(
                 image,
                 min_num=self.config.min_dynamic_patch,
                 max_num=max_num,
                 image_size=self.config.vision_config.image_size,
                 use_thumbnail=self.config.use_thumbnail)
+        
             out = [self.image_transform(x) for x in patch_images]
             out = torch.stack(out)  # (patch) x c x h x w
             outputs.append(dict(pixel_values=out, 
@@ -278,11 +279,10 @@ class CompassLLVM_V1d6(VisonModel):
     @torch.no_grad()
     def forward(self, messages: List[Dict], max_batch_size: int = 1) -> List[Dict]:
         """forward."""
-        images = [x['content'] for x in messages if x['role'] == 'preprocess']
+        images = [x['content'] for x in messages if x['role'] == 'preprocess'][0]
         split = [x["patch_nums"] for x in images]
-        outputs = torch.cat([x["pixel_values"] for x in images], dim=0)
-        # outputs = outputs.to(self.model.device, dtype=self.model.dtype)
-        #logger.info(f"CompassLLVM: image={len(images)}, split={split}, vision_input={outputs.shape}")
+        outputs = torch.cat([x["pixel_values"] for x in images], dim=0).to(self.model.device, dtype=self.model.dtype)
+        logger.info(f"CompassLLVM: image={len(images)}, split={split}, vision_input={outputs.shape}")
         if VLM_ENABLE_TRT:
             B = outputs.shape[0]
             if B > max_batch_size:
@@ -290,16 +290,14 @@ class CompassLLVM_V1d6(VisonModel):
                 for i in range(0, B, max_batch_size):
                     start_idx = i
                     end_idx = i + max_batch_size
-                    input_dicts = {
-                        "pixel_values": outputs[start_idx:end_idx]
-                    }
-                    tmp_hs = self.trt_vision_model(input_dicts)
+                    tmp_hs = self.trt_vision_model({"pixel_values": outputs[start_idx:end_idx]})
                     hs.append(tmp_hs)
                 embedding_outputs = torch.cat(hs, dim=0)
             else:
                 embedding_outputs = self.trt_vision_model({"pixel_values":outputs})
         else:
             embedding_outputs = self.model.extract_feature(outputs)
+
         embedding_outputs = torch.split(embedding_outputs, split, dim=0)
         embedding_outputs = [x.reshape(-1, x.shape[-1]) for x in embedding_outputs]
         if self.model.dtype == torch.bfloat16:
@@ -307,6 +305,27 @@ class CompassLLVM_V1d6(VisonModel):
         messages.append(dict(role='forward', content=embedding_outputs))
         return messages
 
+    @staticmethod
+    def proc_messages(messages, chat_template, sequence_start):
+        """Apply chat template to get the prompt."""
+        prompt_messages = []
+        IMAGE_TOKEN = '<IMAGE_TOKEN>'
+        for message in messages:
+            if isinstance(message['content'], str):
+                prompt_messages.append(message)
+                continue
+            elif message['role'] in ['images', 'preprocess', 'forward']:
+                continue
+            n_images = len([1 for x in message['content'] if x['type'] == 'image'])
+            content = [item['text'] for item in message['content'] if item['type'] == 'text']
+            prompt = (IMAGE_TOKEN + '\n') * n_images + content[0]
+            prompt_messages.append(dict(role=message['role'], content=prompt))
+        prompt = chat_template.messages2prompt(prompt_messages, sequence_start)
+        return prompt, IMAGE_TOKEN
+
+    def to_turbomind(self, messages, chat_template, tokenizer, sequence_start):
+        prompt, IMAGE_TOKEN = self.proc_messages(messages, chat_template, sequence_start)
+        return self.to_turbomind_aux(messages, prompt, IMAGE_TOKEN, tokenizer, sequence_start)
 
 def compassllvm_ut():
     for max_bz in [1]:

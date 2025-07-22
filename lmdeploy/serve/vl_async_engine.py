@@ -13,7 +13,7 @@ from lmdeploy.serve.async_engine import AsyncEngine
 from lmdeploy.utils import get_logger, try_import_deeplink
 from lmdeploy.vl.engine import ImageEncoder
 from lmdeploy.vl.utils import load_image
-
+from lmdeploy.vl.image_embed_cache import LazyRunTracer, EmbeddingLRUCache, EmbeddingMooncake
 logger = get_logger('lmdeploy')
 
 VLPromptType = Union[str, Tuple[str, PIL.Image.Image], Tuple[str, List[PIL.Image.Image]]]
@@ -36,6 +36,10 @@ class VLAsyncEngine(AsyncEngine):
             raise RuntimeError(
                 'please specify chat template as guided in https://lmdeploy.readthedocs.io/en/latest/inference/vl_pipeline.html#set-chat-template'  # noqa: E501
             )
+
+        CAPACITY_SIZE = 1024
+        logger.info(f"🌟ImageEmbedding Cache: LRUCache, CapacitySize: {CAPACITY_SIZE}")
+        self.embedding_cache = EmbeddingLRUCache(capacity=CAPACITY_SIZE)
 
     @classmethod
     def _convert_prompts(cls, prompts: Union[VLPromptType, List[Dict], List[VLPromptType], List[List[Dict]]]):
@@ -75,6 +79,7 @@ class VLAsyncEngine(AsyncEngine):
             raise RuntimeError(f'unsupported messages {messages}')
 
         chat_template = self.chat_template if do_preprocess else BaseChatTemplate()
+        # TODO(cwl): support image embedding cache
         messages = await self.async_convert_to_pil_images(messages)
         results = await self.vl_encoder.preprocess(messages)
         if self.backend == 'turbomind':

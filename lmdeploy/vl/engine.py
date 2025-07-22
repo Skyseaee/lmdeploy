@@ -9,7 +9,7 @@ import torch
 from lmdeploy.messages import PytorchEngineConfig, TurbomindEngineConfig, VisionConfig
 from lmdeploy.utils import get_logger
 from lmdeploy.vl.model.builder import load_vl_model
-from lmdeploy.vl.image_embed_cache import LazyRunTracer, EmbeddingLRUCache, EmbeddingMooncake
+
 
 logger = get_logger('lmdeploy')
 
@@ -40,10 +40,6 @@ class ImageEncoder:
         self.vision_config = vision_config
         self.max_batch_size = vision_config.max_batch_size
         self.executor = ThreadPoolExecutor(max_workers=1)
-        CAPACITY_SIZE = 1024
-        logger.info(f"🌟ImageEmbedding Cache: LRUCache, CapacitySize: {CAPACITY_SIZE}")
-        self.embedding_cache = EmbeddingLRUCache(capacity=CAPACITY_SIZE)
-
         torch.cuda.empty_cache()
 
     async def preprocess(self, messages: List[Dict]) -> List[Dict]:

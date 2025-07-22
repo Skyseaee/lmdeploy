@@ -1,12 +1,18 @@
-# Copyright (c) OpenMMLab. All rights reserved.
+#-*- encoding:utf-8-*-
+# @Copyright: 2025 Shopee. All Rights Reserved.
+# @File: compassllvm.py
+# @Author: wenlong.cao@shopee.com
+# @Description: Used to support loading and inference of the CompassLLVM model
+# Version 1.0(2024-11): Based on Llava, updated the LLM part to CompassLLM 13B
+
 import warnings
 import os
 from typing import Dict, List
 
+import numpy as np
 import torch
 import torch.nn.functional as F
-from PIL.Image import Image
-from transformers import AutoConfig, AutoModelForCausalLM, AutoModel
+from transformers import AutoConfig, AutoModelForCausalLM
 from torchvision.transforms import v2 as transforms
 
 from lmdeploy.utils import get_logger
@@ -138,18 +144,18 @@ class ImageEncoderWrapper(torch.nn.Module):
 
 
 @VISION_MODELS.register_module()
-class CompassLLVM_V1(VisonModel):
+class CompassLLVM(VisonModel):
     _arch = 'CompassLLVM'
-    def __init__(self,
-                 model_path: str,
-                 with_llm: bool = False,
-                 max_memory: Dict[int, int] = None,
-                 hf_config: AutoConfig = None,
-                 backend: str = '',
-                 default_device="auto"):
-        super().__init__(model_path, with_llm, max_memory, hf_config, backend)
-        """init."""
-        self.default_device = default_device
+    # def __init__(self,
+    #              model_path: str,
+    #              with_llm: bool = False,
+    #              max_memory: Dict[int, int] = None,
+    #              hf_config: AutoConfig = None,
+    #              backend: str = '',
+    #              default_device="auto"):
+    #     super().__init__(model_path, with_llm, max_memory, hf_config, backend)
+    #     """init."""
+    #     self.default_device = default_device
 
     @classmethod
     def match(cls, config: AutoConfig):
@@ -168,6 +174,9 @@ class CompassLLVM_V1(VisonModel):
             model = AutoModelForCausalLM.from_config(self.hf_config, trust_remote_code=True)
         self.tv_preprocess_image = ImagePreprocessor(model.visual_tokenizer.image_processor)
         self.default_preprocess_image = model.visual_tokenizer.preprocess_image
+        image_size = self.hf_config.visual_tokenizer_config.backbone_config.image_size
+        patch_size = self.hf_config.visual_tokenizer_config.backbone_config.patch_size
+        self.n_token_per_image = (image_size // patch_size)**2
 
     def build_model(self):
         """build model & load weights."""
@@ -176,7 +185,6 @@ class CompassLLVM_V1(VisonModel):
             warnings.simplefilter('ignore')
             model = AutoModelForCausalLM.from_config(self.hf_config, trust_remote_code=True)
         if not self.with_llm:
-            # delete compass base model meta information, we will load the LLM part at torbomind engine
             del model.llm
         else:
             self.vl_model = model
@@ -187,15 +195,14 @@ class CompassLLVM_V1(VisonModel):
                 model=model,
                 max_memory=self.max_memory,
                 checkpoint=self.model_path,
-                device_map=self.default_device if not self.with_llm else {'': 'cpu'},
-                no_split_module_classes=[],
+                device_map='auto' if not self.with_llm else {'': 'cpu'},
+                no_split_module_classes=['CLIPEncoderLayer', 'SiglipEncoderLayer'],
                 dtype=torch.half)
 
+        model.eval()
         self.model = model
-        self.model.eval()
-        
-        self.tv_preprocess_image = ImagePreprocessor(self.model.visual_tokenizer.image_processor)
-        self.default_preprocess_image = self.model.visual_tokenizer.preprocess_image
+
+        # BUILD vision model
         if VLM_ENABLE_TRT:
             logger.warning("✨CompassLLVM enable_image_trt")
             self.vision_model = ImageEncoderWrapper(self.model.visual_tokenizer, self.model.visual_tokenizer.config)
@@ -211,6 +218,23 @@ class CompassLLVM_V1(VisonModel):
             logger.warning("✨CompassLLVM enable_image_torch")
             self.vision_model = self.model.visual_tokenizer
 
+    def preprocess(self, messages: List[Dict]) -> List[Dict]:
+        """dispatch with input shape, torchvision only support width == height images"""
+        images = self.collect_images(messages)
+        outputs = []
+        for image, param in images:
+            width, height = image.size
+            image_preprocessor = self.tv_preprocess_image if width == height else self.default_preprocess_image
+            image = image.convert('RGB')
+            out = image_preprocessor(image, convert_to_rgb=True)
+            outputs.append(dict(
+                pixel_values=out,
+                image_size=image.size,
+                image_tokens=self.n_token_per_image,
+                image_token_id=self.image_token_id))
+        messages.append(dict(role='preprocess', content=outputs))
+        return messages
+
     def encode(self, pixel_values: torch.Tensor):
         if VLM_ENABLE_TRT:
             features = self.trt_vision_model({"pixel_values":pixel_values}, dtype=self.vision_model.dtype)
@@ -224,30 +248,44 @@ class CompassLLVM_V1(VisonModel):
                 features = features[:, 1:, :]
             return post_process(n, features)
 
-    def preprocess(self, messages: List[Dict]) -> List[Dict]:
-        """dispatch with input shape, torchvision only support width == height images"""
-        images = self.collect_images(messages)
-        outputs = []
-        for image, param in images:
-            width, height = image.size
-            out = self.tv_preprocess_image(image, convert_to_rgb=True) if width == height else self.default_preprocess_image(image, convert_to_rgb=True)
-            outputs.append(dict(
-                pixel_values=out,
-                image_tokens=1,
-                image_token_id=self.image_token_id))
-        messages.append(dict(role='preprocess', content=outputs))
-        return messages
-
+    @torch.no_grad()
     def forward(self, messages: List[Dict], max_batch_size: int = 1) -> List[Dict]:
         """forward for compassllvm s2wrapper."""
-        outputs = [x['content'] for x in messages if x['role'] == 'preprocess']
-        with torch.no_grad():
-            num_images = [x.shape[0] for x in outputs]
-            pixel_values = [x.to(dtype=self.vision_model.dtype, device=self.vision_model.device) for x in pixel_values]
-            visual_tokens = self.encode(torch.cat(pixel_values, dim=0))
+        inputs = [x['content'] for x in messages if x['role'] == 'preprocess'][0]
+        outputs= []
+        for idx in range(0, len(inputs), max_batch_size):
+            pixel_values = [x["pixel_values"].to(dtype=self.vision_model.dtype, device=self.vision_model.device) for x in inputs[idx:idx + max_batch_size]]
+            pixel_values = torch.cat(pixel_values, dim=0)
+            logger.info(f'vision forward shape: {pixel_values.shape}')
+            visual_tokens = self.encode(pixel_values)
             vte_out = self.model.vte(visual_tokens)
-            visual_embeds = torch.split(vte_out, split_size_or_sections=num_images, dim=0)
-        return visual_embeds
+            image_features = torch.split(vte_out, split_size_or_sections=1, dim=0)
+            outputs.extend([x.squeeze() for x in image_features])
+        messages.append(dict(role='forward', content=outputs))
+        return messages
+    
+    @staticmethod
+    def proc_messages(messages, chat_template, sequence_start):
+        """Apply chat template to get the prompt."""
+        prompt_messages = []
+        IMAGE_TOKEN = '<IMAGE_TOKEN>'
+        for message in messages:
+            if isinstance(message['content'], str):
+                prompt_messages.append(message)
+                continue
+            elif message['role'] in ['images', 'preprocess', 'forward']:
+                continue
+            n_images = len([1 for x in message['content'] if x['type'] == 'image'])
+            content = [item['text'] for item in message['content'] if item['type'] == 'text']
+            prompt = (IMAGE_TOKEN + '\n') * n_images + content[0]
+            prompt_messages.append(dict(role=message['role'], content=prompt))
+        prompt = chat_template.messages2prompt(prompt_messages, sequence_start)
+        return prompt, IMAGE_TOKEN
+
+    def to_turbomind(self, messages, chat_template, tokenizer, sequence_start):
+        prompt, IMAGE_TOKEN = self.proc_messages(messages, chat_template, sequence_start)
+        return self.to_turbomind_aux(messages, prompt, IMAGE_TOKEN, tokenizer, sequence_start)
+
 
 def compassllvm_ut():
     for max_bz in [1]:
@@ -257,7 +295,7 @@ def compassllvm_ut():
         from transformers import AutoConfig
         model_dir = "/data/models/Compassllvm_V1_0"
         hf_config = AutoConfig.from_pretrained(model_dir, trust_remote_code=True)
-        model = CompassLLVM_V1(model_path=model_dir, with_llm=False, hf_config=hf_config)
+        model = CompassLLVM(model_path=model_dir, with_llm=False, hf_config=hf_config)
         model.build_model()
         print(f"build max_bz={max_bz} model done")
         cfg = model.vision_model.get_cfg(hf_config.visual_tokenizer_config, max_bz)

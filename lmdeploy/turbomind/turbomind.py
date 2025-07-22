@@ -29,9 +29,9 @@ from lmdeploy.utils import get_max_batch_size, get_model
 
 from .deploy.config import TurbomindModelConfig
 from .supported_models import is_supported
-from .utils import ModelSource, get_model_source
+from .utils import ModelSource, get_model_source, get_logger
 
-from aipinfer import logger
+logger = get_logger('lmdeploy')
 
 # TODO: find another way import _turbomind
 lmdeploy_dir = osp.split(lmdeploy.__file__)[0]

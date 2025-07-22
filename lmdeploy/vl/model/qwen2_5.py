@@ -10,6 +10,7 @@ from typing import Dict, List
 
 import torch
 import torch.nn.functional as F
+from transformers import AutoConfig
 from PIL.Image import Image
 
 from lmdeploy.vl.model.base import VISION_MODELS, VisonModel
@@ -216,6 +217,23 @@ class Qwen2d5VLModel(VisonModel):
 
     _arch = 'Qwen2_5_VLForConditionalGeneration'
 
+    def __init__(self,
+                 model_path: str,
+                 with_llm: bool = False,
+                 max_memory: Dict[int, int] = None,
+                 hf_config: AutoConfig = None,
+                 backend: str = '',
+                 default_device="auto"):
+        super().__init__(model_path, with_llm, max_memory, hf_config, backend)
+        """init."""
+        self.default_device = default_device
+    
+    def build_preprocessor(self):
+        # processor
+        from transformers import AutoProcessor
+        self.processor = AutoProcessor.from_pretrained(self.model_path)
+
+
     def build_model(self):
         check_qwen_2d5_vl_deps_install()
 
@@ -267,9 +285,7 @@ class Qwen2d5VLModel(VisonModel):
 
         self.model = model.eval()
         logger.info(f"🔔final model dtype: {self.model.dtype}")
-        # processor
-        from transformers import AutoProcessor
-        self.processor = AutoProcessor.from_pretrained(self.model_path)
+
         if VLM_ENABLE_TRT:
             logger.debug("✨Qwen2.5VL enable_image_trt")
             self.vision_batch_size = int(os.environ.get("ONELLM_TRT_VISION_MAX_BATCH_SIZE", 1))
@@ -287,69 +303,93 @@ class Qwen2d5VLModel(VisonModel):
             self.model.visual = vision_model
             os.system(f"rm -rf {cfg['onnx_path']}")
 
-    @torch.no_grad()
-    def forward(self,
-                images: List[Image],
-                params: List[Dict] = None) -> List[torch.Tensor]:
-        """forward."""
-        import time
-        start = time.time()
-        # only support image input
-        if params is not None:
-            assert len(images) == len(
-                params), 'different length of images and params'
-        else:
-            params = [{}] * len(images)
-
+    def preprocess(self, messages: List[Dict]) -> List[Dict]:
+        """Refer to `super().preprocess()` for spec."""
         from qwen_vl_utils import process_vision_info
-        images = [x.convert('RGB') for x in images]
-        content = []
-        optional_keys = [
-            'resized_height', 'resized_width', 'min_pixels', 'max_pixels'
-        ]
-        for image, param in zip(images, params):
-            item = dict(type='image', image=image)
-            item.update({k: param[k] for k in optional_keys if k in param})
-            content.append(item)
-        messages = [dict(content=content)]
-        image_inputs, _ = process_vision_info(messages)
-        image_inputs = self.processor.image_processor(images=image_inputs,
-                                                    videos=None,
-                                                    return_tensors='pt')
-        pixel_values = image_inputs['pixel_values'].to(self.model.visual.device, dtype=self.model.visual.dtype)
-        image_grid_thw = image_inputs['image_grid_thw'].to(self.model.visual.device)
-        preprocess_time = time.time() - start
-        
-        if VLM_ENABLE_TRT:
-            new_hidden_states, rotary_pos_emb, attention_mask, cu_attention_mask, window_index = \
-                self.model.visual.prepare_input(pixel_values, image_grid_thw, self.hf_config._attn_implementation)
-            input_data = {
-                "pixel_values": new_hidden_states.cuda(),
-                "rotary_pos_emb": rotary_pos_emb.cuda(),
-                "attention_mask": attention_mask.cuda(),
-                "cu_attention_mask": cu_attention_mask.cuda(),
-            }
-            hidden_states = self.model.vision_model_trt(input_data)
-            reverse_indices = torch.argsort(window_index)
-            image_embeds = hidden_states[reverse_indices, :]
-            image_embeds = image_embeds.to(dtype=torch.float)
-        else:
-            image_embeds = self.model.visual(pixel_values, grid_thw=image_grid_thw).to(dtype=torch.float)
-        logger.info(f"vision_encoder: pixel_values: {list(pixel_values.shape)}, image_embeds:{list(image_embeds.shape)}")
-        merge_length = self.processor.image_processor.merge_size**2
-        split_size = image_inputs['image_grid_thw'].prod(dim=1) // merge_length
-        image_embeds = image_embeds.split(split_size.tolist())
 
+        images = self.collect_images(messages)
+        optional_keys = {'resized_height', 'resized_width', 'min_pixels', 'max_pixels'}
         outputs = []
-        for i, embeddings in enumerate(image_embeds):
-            outputs.append(
-                dict(embeddings=embeddings,
-                     grid_thw=image_inputs['image_grid_thw'][i].tolist()))
-        forward_time = time.time() - start
-        logger.info(f"bz={len(images)}, preprocess:{preprocess_time:.2f}, forward total:{forward_time:.2f}, preprocess_time/forward_time:{preprocess_time/forward_time*100:.2f}%")
+        for image, params in images:
+            image = image.convert('RGB')
+            item = dict(type='image', image=image)
+            item.update({key: params[key] for key in params.keys() if key in optional_keys})
+            image_inputs, _ = process_vision_info([dict(content=[item])])
+            result = self.processor.image_processor(images=image_inputs, videos=None, return_tensors='pt')
+            merge_length = self.processor.image_processor.merge_size**2
+            image_tokens = result['image_grid_thw'].prod(dim=1) // merge_length
+            result.update(dict(image_size=image.size, image_tokens=image_tokens, image_token_id=self.image_token_id))
+
+        messages.append(dict(role='preprocess', content=outputs))
+        return messages
+
+    @torch.no_grad()
+    def forward(self, messages: List[Dict], max_batch_size: int = 1) -> List[Dict]:
+        image_inputs = [x['content'] for x in messages if x['role'] == 'preprocess'][0]
+        # if VLM_ENABLE_TRT:
+        #     new_hidden_states, rotary_pos_emb, attention_mask, cu_attention_mask, window_index = \
+        #         self.model.visual.prepare_input(pixel_values, image_grid_thw, self.hf_config._attn_implementation)
+        #     input_data = {
+        #         "pixel_values": new_hidden_states.cuda(),
+        #         "rotary_pos_emb": rotary_pos_emb.cuda(),
+        #         "attention_mask": attention_mask.cuda(),
+        #         "cu_attention_mask": cu_attention_mask.cuda(),
+        #     }
+        #     hidden_states = self.model.vision_model_trt(input_data)
+        #     reverse_indices = torch.argsort(window_index)
+        #     image_embeds = hidden_states[reverse_indices, :]
+        #     image_embeds = image_embeds.to(dtype=torch.float)
+        # else:
+        outputs = []
+        for image in image_inputs:
+            pixel_values = image["pixel_values"]
+            image_grid_thw = image["image_grid_thw"]
+            image_tokens = image["image_tokens"]
+
+            image_embeds = self.model.visual(pixel_values, grid_thw=image_grid_thw).to(dtype=torch.float)
+            logger.info(f"vision_encoder: pixel_values: {list(pixel_values.shape)}, image_embeds:{list(image_embeds.shape)}")
+            # image_embeds = image_embeds.split(image_tokens.tolist())
+            # for i, embeddings in enumerate(image_embeds):
+            #     outputs.append(
+            #         dict(embeddings=embeddings,
+            #             grid_thw=image_inputs['image_grid_thw'][i].tolist()))
+            image.update({"embeddings":image_embeds})
+            outputs.append(image)
+        messages.append(dict(role='forward', content=outputs))
         return outputs
 
+    @staticmethod
+    def proc_messages(messages, chat_template, sequence_start):
+        """Apply chat template to get the prompt."""
+        prompt_messages = []
+        IMAGE_TOKEN = '<IMAGE_TOKEN>'
+        for message in messages:
+            if isinstance(message['content'], str):
+                prompt_messages.append(message)
+                continue
+            elif message['role'] in ['images', 'preprocess', 'forward']:
+                continue
+            n_images = len([1 for x in message['content'] if x['type'] == 'image'])
+            content = [item['text'] for item in message['content'] if item['type'] == 'text']
+            prompt = content[0]
+            if IMAGE_TOKEN in prompt and '<|vision_start|>' not in prompt:
+                prompt = prompt.replace(IMAGE_TOKEN, f'<|vision_start|>{IMAGE_TOKEN}<|vision_end|>')
+            else:
+                # Qwen2-VL-2B-Instruct will concat image and user prompt
+                # according to their order in the content list
+                # we insert image token before user prompt by default. The
+                # user can use custom image token position if they want the
+                # same decorated prompt as Qwen2-VL
+                prompt = f'<|vision_start|>{IMAGE_TOKEN}<|vision_end|>' * \
+                    n_images + prompt
+            prompt_messages.append(dict(role=message['role'], content=prompt))
+        prompt = chat_template.messages2prompt(prompt_messages, sequence_start)
+        return prompt, IMAGE_TOKEN
 
+    def to_turbomind(self, messages, chat_template, tokenizer, sequence_start):
+        prompt, IMAGE_TOKEN = self.proc_messages(messages, chat_template, sequence_start)
+        return self.to_turbomind_aux(messages, prompt, IMAGE_TOKEN, tokenizer, sequence_start)
+    
 def qwen2d5vl_ut():
     # import sys
     # from lmdeploy.vl.model.onepiece.workflow import build_engine

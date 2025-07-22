@@ -921,7 +921,7 @@ class AsyncEngine(LogitsMixin):
                 self.id2step[session_id] += input_len + output_len
             # for VLAsyncEngine
             if hasattr(self, 'vl_encoder'):
-                hit_msg = f"vl_cache:{self.vl_encoder.embedding_cache.size}/{self.vl_encoder.embedding_cache.max_capacity}, vl_hit_rate:{self.vl_encoder.embedding_cache.hit_rate:.2f}%, "
+                hit_msg = f"vl_cache:{self.embedding_cache.size}/{self.embedding_cache.max_capacity}, vl_hit_rate:{self.embedding_cache.hit_rate:.2f}%, "
             else:
                 hit_msg = ""
             logger.info(f'traceid: {traceid}, input_tokens: {len(input_ids)}, session_id: {session_id},'
