@@ -3,6 +3,8 @@
 from typing import List, Optional
 
 from .messages import GenerationConfig
+from .utils import get_logger
+
 from aipinfer import logger
 
 # logger = get_logger('lmdeploy')

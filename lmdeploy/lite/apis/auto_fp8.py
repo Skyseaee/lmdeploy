@@ -79,12 +79,17 @@ def auto_fp8(model: str,
                                         trust_remote_code=True)
         vl_model = None
     elif model_type == 'vlm':
+        from accelerate import init_empty_weights, load_checkpoint_and_dispatch
         from lmdeploy.vl.model.builder import vl_model_with_tokenizer
+
         vl_model, model, tokenizer = vl_model_with_tokenizer(
             model_path=model_path)
         # fp8 calibrated on GPU
-        model = model.to(device)
-
+        with init_empty_weights():
+            model = model
+        model = load_checkpoint_and_dispatch(
+            model, model_path, device_map="auto"
+        )
 
     kv_cache_quant_layers = []
     if kv_cache_fp8:

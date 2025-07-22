@@ -102,6 +102,7 @@ class Ffn(Module):
         # in the weights
         self.inter_size = model.model_config.inter_size
         self.group_size = max(1, model.model_config.group_size)
+        self.model_format = model.model_config.model_format
 
     def _export(self,
                 inter_size: int,
@@ -129,9 +130,39 @@ class Ffn(Module):
         self.model.save_split(w3, fmt.format(idx, 'w3', kind), split_dim=-1, split_num=self.tp, copy=is_lora_a)
         self.model.save_split(w2, fmt.format(idx, 'w2', kind), split_dim=0, split_num=self.tp, copy=is_lora_b)
 
+    def _export_fp8(self, fmt: str, idx: int, w123, kind: str, pack_fn):
+        w1, w2, w3 = w123
+        if kind == 'qweight':
+            split_dim_w13 = 0
+            split_dim_w2 = -1
+            copy = False
+        else:
+            split_dim_w13 = None
+            split_dim_w2 = None
+            copy = True
+        self.model.save_split(pack_fn(w1),
+                              fmt.format(idx, 'w1', kind),
+                              split_dim=split_dim_w13,
+                              split_num=self.tp,
+                              copy=copy)
+        self.model.save_split(pack_fn(w3),
+                              fmt.format(idx, 'w3', kind),
+                              split_dim=split_dim_w13,
+                              split_num=self.tp,
+                              copy=copy)
+        self.model.save_split(pack_fn(w2),
+                              fmt.format(idx, 'w2', kind),
+                              split_dim=split_dim_w2,
+                              split_num=self.tp,
+                              copy=copy)
+
     def apply(self, i: int, r: BaseReader):
-        for e in get_params(r.ffn(i, None)):
-            e(partial(self._export, self.inter_size[i], self._ffn), partial(r.ffn, i), i)
+        for e in get_params(r.ffn(i, None), model_format=self.model_format):
+            if self.model_format == 'fp8':
+                e(partial(self._export_fp8, self._ffn), partial(r.ffn, i), i,
+                  module_type='ffn')
+            else:
+                e(partial(self._export, self.inter_size[i], self._ffn), partial(r.ffn, i), i)
 
 
 class MoeFfn(Ffn):
@@ -158,7 +189,13 @@ class MoeFfn(Ffn):
         for p in get_params(r.moe_ffn_expert()):
             for e in range(self.expert_num[i]):
                 fmt = self._moe_ffn_expert.replace('E', str(e))
-                p(partial(self._export, self.inter_size, fmt), partial(r.moe_ffn_expert, e, i), i)
+
+                if self.model_format == 'fp8':
+                    p(partial(self._export_fp8, fmt), partial(r.moe_ffn_expert, e, i),
+                      i, module_type='ffn')
+                else:
+                    p(partial(self._export, self.inter_size, fmt),
+                      partial(r.moe_ffn_expert, e, i), i)
 
         gate = transpose(r.moe_ffn_gate(i))
         self.model.save_split(gate, self._moe_ffn_gate.format(i))
@@ -183,8 +220,9 @@ class Attn(Module):
         self.head_dim = model.model_config.size_per_head
         self.attn_bias = model.model_config.attn_bias
         self.qk_norm = model.model_config.qk_norm
+        self.model_format = model.model_config.model_format
 
-    def _reorder_and_merge(self, qkvo, block_size):
+    def _reorder_and_merge(self, qkvo, block_size, kind='qweight'):
         q, k, v, o = qkvo
         # reorder output dim for tm's rotary embedding layout
         if self.model.permute_qk:
@@ -194,6 +232,9 @@ class Attn(Module):
             else:
                 assert block_size % self.head_dim == 0
         qkv = merge_qkv_v2(q, k, v, self.tp)
+        if self.model_format == 'fp8' and kind == 'qweight':
+            # transpose tensor after merge_qkv, for TN FP8 GemmW
+            qkv = transpose(qkv)
         # zero bias for `wo` when `w_qkv` has bias but `wo` doesn't
         if o is None and q.dim() == 1:
             o = torch.zeros_like(q)
@@ -242,9 +283,49 @@ class Attn(Module):
                               split_num=self.tp,
                               copy=is_lora_b)
 
+    def _export_fp8(self, idx: int, qkvo, kind: str, pack_fn, block_size=1, **kwargs):
+        if all(x is None for x in qkvo):
+            return
+        if kind in ['qweight', 'bias']:
+            qkv, o = self._reorder_and_merge(qkvo, block_size, kind=kind)
+
+            if kind == 'bias':
+                self.model.save_split(pack_fn(qkv),
+                                      self._attn.format(idx, 'w_qkv', kind),
+                                      split_dim=-1,
+                                      split_num=self.tp,
+                                      copy=False)
+                self.model.save_split(pack_fn(o),
+                                      self._attn.format(idx, 'wo', kind),
+                                      split_dim=None,
+                                      copy=True)
+            else:
+                self.model.save_split(pack_fn(qkv),
+                                      self._attn.format(idx, 'w_qkv', kind),
+                                      split_dim=0,
+                                      split_num=self.tp,
+                                      copy=False)
+                self.model.save_split(pack_fn(o),
+                                      self._attn.format(idx, 'wo', kind),
+                                      split_dim=-1,
+                                      split_num=self.tp,
+                                      copy=False)
+        else:
+            layer_type, scale_type = kind.split('.') # w_qkv/wo, weight/input_scale
+            self.model.save_split(pack_fn(qkvo),
+                                  self._attn.format(idx, layer_type, scale_type),
+                                  split_dim=None,
+                                  split_num=self.tp,
+                                  copy=True)
+
     def apply(self, i: int, r: BaseReader):
-        for e in get_params(r.attn(i, None), bias=self.attn_bias):
-            e(self._export, partial(r.attn, i), i)
+        for e in get_params(r.attn(i, None), bias=self.attn_bias,
+                            model_format=self.model_format):
+            if self.model_format == 'fp8' and isinstance(e, QuantWeightFP8):
+                e(self._export_fp8, partial(r.attn, i), i, module_type='attn')
+            else:
+                e(self._export, partial(r.attn, i), i)
+
         if self.qk_norm:
             q, k = r.qk_norm(i)
             if self.model.permute_qk:

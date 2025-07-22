@@ -168,8 +168,8 @@ class TurboMind:
         tm_params = self._tm_model.tm_params
         if len(tm_params) > 0:
             uninitialized = list(tm_params.keys())
-            logger.warn('the model may not be loaded successfully '
-                           f'with {len(tm_params)} uninitialized params:\n{uninitialized}')
+            logger.warn('theccodel may not be loaded successfully '
+                        f'with {len(tm_params)} uninitialized params:\n{uninitialized}')
 
     def _load_weights(self, model_source: ModelSource):
         """Load weights."""
@@ -792,7 +792,7 @@ class TurboMindInstance:
             if cfg.logprobs > MAX_LOGPROBS:
                 cfg.logprobs = MAX_LOGPROBS
                 logger.warn(f'logprobs shoudd be in range [1, {MAX_LOGPROBS}]'
-                               f'update logprobs={cfg.logprobs}')
+                            f'update logprobs={cfg.logprobs}')
             c.output_logprobs = cfg.logprobs
         if cfg.random_seed is not None:
             c.random_seed = cfg.random_seed

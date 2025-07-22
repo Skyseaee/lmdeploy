@@ -138,8 +138,14 @@ class BaseOutputModel(ABC):
             tensor.contiguous().cpu().numpy().tofile(path)
 
         if self.to_file:
-            if torch.is_floating_point(param):
-                torch_type = _weight_dtype_map(self.model_config.weight_type, torch.float16)
+            # for fp8 gemm do not need convert model from fp8 to fp16
+            gemm_fp8_weight_check_flag =  (self.cfg.weight_type == 'fp8' and
+                                           (param.dtype == torch.float8_e4m3fn or
+                                            param.dtype == torch.float32))
+            if torch.is_floating_point(param) and not gemm_fp8_weight_check_flag:
+                torch_type = _weight_dtype_map(self.model_config.weight_type,
+                                               torch.float16)
+                # print(f"=== weight: {name} with {param.shape} export_weight type from weight {param.dtype} to {torch_type}")
                 param = param.to(torch_type)
             tprint(name, param.shape)
             _tofile(param, osp.join(self.out_dir, name))
@@ -149,19 +155,35 @@ class BaseOutputModel(ABC):
             assert weight_type in ['float16', 'bfloat16', 'int4', 'fp8']
 
             # currently, the tensor type should in
-            # [torch.float, torch.half, torch.bfloat16, torch.int32]
+            # [torch.float, torch.half, torch.bfloat16, torch.int32, torch.float8_e4m3fn]
             torch_tensor = param.cuda().contiguous()
-            assert torch_tensor.dtype in [torch.int32, torch.float, torch.half, torch.bfloat16, torch.uint8]
+            assert torch_tensor.dtype in [
+                torch.int32, torch.float, torch.half, torch.bfloat16,
+                torch.uint8, torch.float8_e4m3fn
+            ]
             if torch_tensor.dtype != torch.int32:
-                if weight_type in ['float16', 'int4']:
-                    torch_tensor = torch_tensor.half()
+                if weight_type in ['float16', 'int4', 'fp8']:
+                    if weight_type == 'fp8':
+                        if torch_tensor.dtype == torch.float and torch_tensor.numel() == 1:
+                            # for quant scales
+                            torch_tensor = torch_tensor.float()
+                        elif torch_tensor.dtype == torch.bfloat16:
+                            # for unquantized tensors with original precision
+                            torch_tensor = torch_tensor.bfloat16()
+                        else:
+                            # fp8 tensors are not supported by dlpack, convert to fp16
+                            torch_tensor = torch_tensor.half()
+                    else:
+                        torch_tensor = torch_tensor.half()
                 elif weight_type == 'bfloat16':
                     torch_tensor = torch_tensor.bfloat16()
-                elif weight_type == 'fp8':
-                    pass
+                # elif weight_type == 'fp8':
+                #     pass
                 else:
                     torch_tensor = torch_tensor.half()
             for tm_tensor in tm_params[name]:
+                # print(f'{name}, tensor_shape={torch_tensor.shape} tensor_type={torch_tensor.dtype} '
+                #       f'tm_type={tm_tensor.type}, tm_shape={tm_tensor.shape}')
                 tm_tensor.copy_from(torch_tensor)
             tm_params.pop(name)
         else:
