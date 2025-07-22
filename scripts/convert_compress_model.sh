@@ -30,7 +30,13 @@ function check_transformers_version() {
   local model_path=$1
 
   echo "Checking transformer version from ${model_path} ..."
-  transformers_version=$(grep 'transformers_version' ${model_path}/config.json | sed 's/.*"transformers_version": "\(.*\)",/\1/')
+  transformers_version=$(jq -r '
+                .transformers_version //
+                .language_config.transformers_version //
+                .llm_config.transformers_version //
+                .text_config.transformers_version //
+                .vision_config.transformers_version
+                ' "${model_path}/config.json")
 
   python3 -c "
 import sys
@@ -82,10 +88,15 @@ function quantize_model(){
 
   config_file="${model_path}/config.json"
   dst_config_file="${dst_path}/config.json"
-  architecture=$(awk -F'["]' '/"architectures"/ {getline; print $2}' "$config_file")
-  intermediate_size=$(jq '.intermediate_size' "$config_file")
-  num_experts=$(jq -r '.num_experts' "$config_file")
-  num_experts_per_tok=$(jq -r '.num_experts_per_tok' "$config_file")
+  architecture=$(jq -r '
+                    .language_config.architectures[0] //
+                    .llm_config.architectures[0] //
+                    .text_config.architectures[0] //
+                    .architectures[0]
+                    ' "$config_file")
+  intermediate_size=$(jq '.intermediate_size//.llm_config.intermediate_size' "$config_file")
+  num_experts=$(jq -r '.num_experts//.llm_config.num_experts' "$config_file")
+  num_experts_per_tok=$(jq -r '.num_experts_per_tok//.llm_config.num_experts_per_tok' "$config_file")
 
   local extra_args=""
 

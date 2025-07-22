@@ -31,6 +31,53 @@ class CompassV1d6Reader(CompassReader):
     norm_weight_key = 'language_model.model.norm.weight'
     output_weight_key = 'language_model.lm_head.weight'
 
+class CompassMoeReader(CompassV1d6Reader):
+    ffn_pattern = r'shared_expert\.'
+
+    def moe_ffn_expert(self, e=None, i=None, kind=None):
+        if not kind:
+            return self.filter(r'experts')
+        result = []
+        key_list = []
+        if self.model_cfg['num_experts'] == 16:
+            # compass-max
+            key_list = ['w1', 'w2', 'w3']
+            name = f'language_model.model.layers.{i}.block_sparse_moe.experts.{e}.KEY.{kind}'
+        else:
+            # compass-smoe
+            key_list = ['gate', 'down', 'up']
+            name = f'language_model.model.layers.{i}.mlp.experts.{e}.KEY_proj.{kind}'
+
+        for key in key_list:
+            _name = name.replace("KEY", key)
+            tensor = self.params.get(_name)
+            tensor = self.transform(tensor, kind)
+            result.append(tensor)
+        return (*result, )
+
+    def moe_ffn_gate(self, i):
+        if self.model_cfg['num_experts'] == 16:
+            # compass-max
+            return self.params.get(f'language_model.model.layers.{i}.block_sparse_moe.gate.weight')
+        else:
+            return self.params.get(f'language_model.model.layers.{i}.mlp.gate.weight')
+
+    def _ffn(self, i: int, kind: str):
+        """Get ffn kind for layer i."""
+        if not kind:
+            return self.filter(self.ffn_pattern)
+        result = []
+        for key in ['gate', 'down', 'up']:
+            tensor = self.params[
+                f'language_model.model.layers.{i}.mlp.shared_expert.{key}_proj.{kind}']
+            tensor = self.transform(tensor, kind)
+            result.append(tensor)
+        return (*result, )
+
+    def moe_ffn_shared_gate(self, i):
+        return self.params.get(
+            f'language_model.model.layers.{i}.mlp.shared_expert_gate.weight')
+
 @INPUT_MODELS.register_module(name='compassllvm')
 class CompassLLVM(LlamaModel):
     """InternVL model in hf format."""
@@ -42,14 +89,15 @@ class CompassLLVM(LlamaModel):
         # self.ckpt_files = self.get_ckpt()
         from transformers import AutoConfig
         config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
-        version = "1.0"
+        self.version = "1.0"
         if hasattr(config, "version"):
-            version = config.version
+            self.version = config.version
         version_readers = {
             "1.0": CompassReader,
-            "1.6": CompassV1d6Reader
+            "1.6": CompassV1d6Reader,
+            "2.0": CompassMoeReader,
         }
-        self.Reader = version_readers[version]
+        self.Reader = version_readers[self.version]
 
     def get_ckpt(self):
         """Get weight files."""
@@ -94,18 +142,35 @@ class CompassLLVM(LlamaModel):
                 if scaling_type == 'dynamic':
                     use_dynamic_ntk = 1
 
-        return dict(num_layer=num_layer,
-                    norm_eps=norm_eps,
-                    attn_head_num=attn_head_num,
-                    kv_head_num=kv_head_num,
-                    head_num=attn_head_num,
-                    hidden_units=hidden_units,
-                    rope_theta=rope_theta,
-                    vocab_size=vocab_size,
-                    inter_size=inter_size,
-                    max_position_embeddings=max_position_embeddings,
-                    use_dynamic_ntk=use_dynamic_ntk,
-                    rope_scaling_factor=scaling_factor,
-                    use_logn_attn=use_logn_attn,
-                    tie_word_embeddings=tie_word_embeddings,
-                    use_normhead=use_normhead)
+            info = dict(num_layer=num_layer,
+                        norm_eps=norm_eps,
+                        attn_head_num=attn_head_num,
+                        kv_head_num=kv_head_num,
+                        head_num=attn_head_num,
+                        hidden_units=hidden_units,
+                        rope_theta=rope_theta,
+                        vocab_size=vocab_size,
+                        inter_size=inter_size,
+                        max_position_embeddings=max_position_embeddings,
+                        use_dynamic_ntk=use_dynamic_ntk,
+                        rope_scaling_factor=scaling_factor,
+                        use_logn_attn=use_logn_attn,
+                        tie_word_embeddings=tie_word_embeddings,
+                        use_normhead=use_normhead)
+
+            if self.version == "2.0":
+                # compass-moe
+                num_experts = model_arg['num_experts']
+                expert_inter_size = model_arg['moe_intermediate_size']
+                experts_per_token = model_arg['num_experts_per_tok']
+                inter_size = model_arg['shared_expert_intermediate_size']
+                moe_shared_gate = model_arg['use_shared_expert_gate']
+                moe_norm_topk = model_arg['norm_topk_prob']
+                info.update(num_experts=num_experts,
+                            expert_inter_size=expert_inter_size,
+                            experts_per_token=experts_per_token,
+                            inter_size=inter_size,
+                            moe_shared_gate=moe_shared_gate,
+                            moe_norm_topk=moe_norm_topk,
+                            attn_bias=0)
+            return info
