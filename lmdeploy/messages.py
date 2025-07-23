@@ -225,6 +225,7 @@ class TurbomindEngineConfig:
             it to True if you want to update weights after create the pipeline
         hf_overrides (Dict[str, Any]): Huggingface overrides for the model.
             It can be used to override the default config of the model,
+        enable_metrics (bool): enable metrics system
     """
 
     dtype: str = 'auto'
@@ -255,6 +256,7 @@ class TurbomindEngineConfig:
     empty_init: bool = False
     communicator: str = 'nccl'
     hf_overrides: Optional[Dict[str, Any]] = None
+    enable_metrics: bool = False
 
     def __post_init__(self):
         """Check input validation."""

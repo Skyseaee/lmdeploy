@@ -122,6 +122,11 @@ class PrometheusStatLogger(StatLoggerBase):
             name='lmdeploy:num_requests_waiting',
             documentation='Number of requests waiting to be processed.',
             labelnames=labelnames).labels(*labelvalues)
+        
+        self.gauge_scheduler_total = prometheus_client.Gauge(
+            name='lmdeploy:num_total_reqs',
+            documentation='Total number of requests processed by the model.',
+            labelnames=labelnames).labels(*labelvalues)
 
         #
         # GPU cache
@@ -246,6 +251,7 @@ class PrometheusStatLogger(StatLoggerBase):
         self.gauge_scheduler_running.set(scheduler_stats.num_running_reqs)
         self.gauge_scheduler_waiting.set(scheduler_stats.num_waiting_reqs)
         self.gauge_gpu_cache_usage.set(scheduler_stats.gpu_cache_usage)
+        self.gauge_scheduler_total.set(scheduler_stats.num_total_reqs)
 
         if iteration_stats is None:
             return

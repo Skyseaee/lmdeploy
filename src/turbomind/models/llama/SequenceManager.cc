@@ -141,6 +141,16 @@ void SequenceManager::UpdateAndSetUnlock(const Sequence& sequence)
     seq.status = Sequence::kCached;
 }
 
+int SequenceManager::GetFreeBlockCount() const
+{
+    return block_manager_->free_count();
+}
+
+int SequenceManager::GetTotalBlockCount() const
+{
+    return block_manager_->max_block_count();
+}
+
 namespace {
 
 struct Schedule {

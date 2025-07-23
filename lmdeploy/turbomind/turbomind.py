@@ -14,6 +14,7 @@ from dataclasses import asdict
 from functools import partial
 from multiprocessing.reduction import ForkingPickler
 from queue import Queue
+import time
 from typing import Dict, List
 
 import numpy as np
@@ -22,7 +23,7 @@ import yaml
 from torch.nn.utils.rnn import pad_sequence
 
 import lmdeploy
-from lmdeploy.messages import EngineOutput, GenerationConfig, ResponseType, TurbomindEngineConfig
+from lmdeploy.messages import EngineOutput, GenerationConfig, MetricsInfo, ResponseType, TurbomindEngineConfig, EngineCoreEvent, EngineCoreEventType
 from lmdeploy.serve.openai.protocol import UpdateParamsRequest
 from lmdeploy.utils import get_logger, get_max_batch_size, get_model
 
@@ -625,6 +626,32 @@ class TurboMindInstance:
         """Executing on engine's signaling thread."""
         s.loop.call_soon_threadsafe(s.release)
 
+    def _construct_scheduler_raw_info(self, outputs: Dict[str, _tm.Tensor]):
+        running_reqs_num = outputs.get('running_reqs_num', None).item()
+        total_reqs_num = outputs.get('total_reqs_num', None).item()
+        free_gpu_blocks = outputs.get('free_gpu_blocks', None).item()
+        total_gpu_blocks = outputs.get('total_gpu_blocks', None).item()
+        return {'locked': running_reqs_num, 'waiting': total_reqs_num - running_reqs_num, 
+                              'running': 0, 'free_gpu_blocks': free_gpu_blocks, 'total_gpu_blocks': total_gpu_blocks}
+
+    def construct_metrics_info(self, outputs: Dict[str, _tm.Tensor]) -> MetricsInfo:
+        """Construct metrics info."""
+        engine_start = outputs.get('engine_start', None).item()
+        engine_scheduled = outputs.get('engine_scheduled', None).item()
+
+        engine_events = [EngineCoreEvent.new_event(EngineCoreEventType.QUEUED, engine_start), EngineCoreEvent.new_event(EngineCoreEventType.SCHEDULED, engine_scheduled)]
+        scheduler_raw_info = self._construct_scheduler_raw_info(outputs)
+        return MetricsInfo(
+            engine_core_timestamp=time.perf_counter(),
+            engine_core_events=engine_events,
+            scheduler_raw_info=scheduler_raw_info,
+        )
+    
+    def update_metrics_info(self, metrics_info: MetricsInfo, outputs: Dict[str, _tm.Tensor]):
+        """Update metrics info."""
+        metrics_info.scheduler_raw_info = self._construct_scheduler_raw_info(outputs)
+
+
     async def async_stream_infer(self,
                                  session_id,
                                  input_ids,
@@ -674,6 +701,7 @@ class TurboMindInstance:
         extra_fs = self._get_extra_output_processors(outputs, gen_config, input_len)
 
         output_ids_buf = outputs['output_ids']
+        metrics_info = self.construct_metrics_info(outputs)
 
         finish = False
         state = None
@@ -701,7 +729,9 @@ class TurboMindInstance:
                 output_ids += output_ids_buf[prev_len:seq_len].tolist()
                 output_len += seq_len - prev_len
                 status = ResponseType.FINISH if finish else ResponseType.SUCCESS  # noqa
-                output = EngineOutput(status, output_ids, output_len)
+                metrics_info.engine_core_timestamp = time.perf_counter()
+                self.update_metrics_info(metrics_info, outputs)
+                output = EngineOutput(status, output_ids, output_len, metrics_info=metrics_info)
 
                 for f in extra_fs:
                     f(output, seq_len)

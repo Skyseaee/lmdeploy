@@ -96,6 +96,9 @@ public:
     [[nodiscard]] bool Erase(uint64_t id);
 
     void UpdateAndSetUnlock(const Sequence& seq);
+    
+    int GetFreeBlockCount() const;
+    int GetTotalBlockCount() const;
 
     struct Outcome {
         int allocation;

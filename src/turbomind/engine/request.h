@@ -9,6 +9,8 @@
 #include <iterator>
 #include <memory>
 #include <ostream>
+#include <chrono>
+#include <vector>
 
 #include "src/turbomind/core/core.h"
 
@@ -109,6 +111,19 @@ struct AtomicRequestState {
     }
 };
 
+enum EngineCoreEventType
+{
+    kEventStart = 0,  // when the request was received by the engine core and added to the scheduler queue
+    kScheduled   = 1, // when the request was first scheduled for execution
+    kEventCancel = 2, // the request has been put back in the waiting queue in order to make room for other requests to complete.
+                      // It will be re-scheduled in future and re-start its prefill phase, not supported yet
+};
+
+struct EngineCoreEvent {
+    EngineCoreEventType type;
+    double timestamp;  // in seconds
+};
+
 struct Request {
     uint64_t id;         // sequence id
     uint64_t unique_id;  // monotonic increasing
@@ -133,6 +148,8 @@ struct Request {
 
     std::shared_ptr<AtomicRequestState> state;
 
+    std::vector<EngineCoreEvent> events;
+
     int ec;  // set when disabling conflicting requests
 
     enum
@@ -148,6 +165,12 @@ struct Request {
         kCancel   = 8,
     };
 };
+
+inline double current_timestamp() {
+    auto now = std::chrono::steady_clock::now();
+    auto duration = now.time_since_epoch();
+    return std::chrono::duration<double>(duration).count();
+}
 
 inline void UpdateState(Request& r, int status, int seq_len)
 {
