@@ -128,7 +128,6 @@ auto ModelRequest::Forward(InputParam param, std::function<void()> cb) -> Output
     r->output_ids      = outputs_->at("output_ids");
     r->sequence_length = outputs_->at("sequence_length");
 
-    // r->updateEngineCoreEvent(EngineCoreEventType::kEventStart);
     auto engine_start = r->outputs.at("engine_start").data<double>();
     *engine_start = current_timestamp();
 

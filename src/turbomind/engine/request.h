@@ -164,28 +164,13 @@ struct Request {
         kFinish   = 7,
         kCancel   = 8,
     };
-
-    inline double current_timestamp() {
-        auto now = std::chrono::system_clock::now();
-        auto duration = now.time_since_epoch();
-        return std::chrono::duration<double>(duration).count();
-    }
-
-    inline int updateEngineCoreEvent(EngineCoreEventType type)
-    {
-        float timestamp = current_timestamp();
-        if (type == kEventStart && !events.empty() && events.back().type == kEventStart) {
-            // Ignore duplicate start events
-            return 0;
-        }
-        if (type == kScheduled && events.empty()) {
-            // Ignore end event without start
-            return 0;
-        }
-        events.push_back({type, timestamp});
-        return 1;
-    }
 };
+
+inline double current_timestamp() {
+    auto now = std::chrono::steady_clock::now();
+    auto duration = now.time_since_epoch();
+    return std::chrono::duration<double>(duration).count();
+}
 
 inline void UpdateState(Request& r, int status, int seq_len)
 {
