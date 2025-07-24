@@ -168,7 +168,7 @@ class TurboMind:
         tm_params = self._tm_model.tm_params
         if len(tm_params) > 0:
             uninitialized = list(tm_params.keys())
-            logger.warn('theccodel may not be loaded successfully '
+            logger.warn('the model may not be loaded successfully '
                         f'with {len(tm_params)} uninitialized params:\n{uninitialized}')
 
     def _load_weights(self, model_source: ModelSource):
@@ -259,12 +259,10 @@ class TurboMind:
         # Note: use_logn_attn should get from huggingface config.json in LLM-Maas
         engine_config.use_logn_attn = bool(self.config.attention_config.use_logn_attn)
         engine_config.session_len = self.config.session_len
-        # self.model_name = self.config.model_name
 
         # pack `self.config` and `self.engine_config` into a dict
         self.config_dict = self.config.to_dict()
         self.config_dict.update(dict(engine_config=asdict(self.engine_config)))
-
         logger.info(f'turbomind model config:\n\n'
                     f'{json.dumps(self.config_dict, indent=2)}')
 
@@ -294,14 +292,6 @@ class TurboMind:
         tm_params = tm_model.tm_params
         self._get_model_params(model_comm, tm_params)
         logger.warn(f'get {len(tm_params)} model params')
-        tm_model.export()
-        # there should be no left turbomind params.
-        if len(tm_params) > 0:
-            uninitialized = list(tm_params.keys())
-            logger.warn(
-                'the model may not be loaded successfully '
-                f'with {len(tm_params)} uninitialized params:\n{uninitialized}'
-            )
         return model_comm
 
     def _from_workspace(self, model_path: str, engine_config: TurbomindEngineConfig):
@@ -526,7 +516,7 @@ class StreamingSemaphore:
     def release(self):
         if not self.val:
             self.val = 1
-            if self.fut:
+            if self.fut and not self.fut.done():
                 self.fut.set_result(None)
 
 
@@ -725,7 +715,7 @@ class TurboMindInstance:
 
                 status, seq_len = state.status, state.seq_len
 
-                if status in [7, 8]:  # finish / canceled
+                if status in [7, 8]:  # finish / canceled defined in request.h
                     finish, status = True, 0
                 elif status:
                     yield self._get_error_output()

@@ -64,7 +64,6 @@ class GenOut:
     # for disaggregation
     cache_block_ids: List[int] = None
     cost_time: float = 0
-    finished: bool = False
 
 
 def _gen_out_to_response(out: GenOut, index) -> Response:
@@ -743,9 +742,9 @@ class AsyncEngine(LogitsMixin):
 
         if gen_config.max_new_tokens is None:
             # for interactive endpoint, will try maximum possible token num
-            gen_config.max_new_tokens = max(128, self.session_len - self.id2step[session_id] - len(input_ids))
+            gen_config.max_new_tokens = max(0, self.session_len - self.id2step[session_id] - len(input_ids))
         elif self.id2step[session_id] + len(input_ids) + gen_config.max_new_tokens > self.session_len:
-            gen_config.max_new_tokens = max(self.session_len - self.id2step[session_id] - len(input_ids), 128)
+            gen_config.max_new_tokens = max(self.session_len - self.id2step[session_id] - len(input_ids), 0)
             logger.error(f'Truncate max_new_tokens to {gen_config.max_new_tokens}')
 
         if len(input_ids) < 1:
@@ -756,16 +755,16 @@ class AsyncEngine(LogitsMixin):
             logger.info(f'traceid: {traceid}, input_tokens: {len(input_ids)}, session_id: {session_id}, '
                         f'top_k: {gen_config.top_k}, top_p: {gen_config.top_p}, temperature: {gen_config.temperature}, '
                         f'repetition_penalty: {gen_config.repetition_penalty}, step: {step},'
-                        f'ignore_eos: {gen_config.ignore_eos}, finish_reason: {finish_reason}, finished: {True}, '
+                        f'ignore_eos: {gen_config.ignore_eos}, finish_reason: {finish_reason}, '
                         f'preprocess_time: {preprocess_time:0.2f}, total_time: {cost_time:0.2f}'
                         )
             yield GenOut(warn_msg, self.id2step[session_id], len(input_ids), 0,
-                         finish_reason, cost_time=cost_time, finished=True)
+                         finish_reason, cost_time=cost_time)
             if sequence_end is True and sequence_start is False:
                 await self.end_session(session_id)
             return
 
-        if self.id2step[session_id] + len(input_ids) + gen_config.max_new_tokens > self.session_len:
+        if self.id2step[session_id] + len(input_ids) >= self.session_len:
             warn_msg = f'run out of tokens. session_id={session_id}'
             logger.warn(warn_msg)
             finish_reason = 'length'
@@ -775,11 +774,11 @@ class AsyncEngine(LogitsMixin):
                         f'sequence_end: {sequence_end}, max_new_tokens: {gen_config.max_new_tokens},'
                         f'top_k: {gen_config.top_k}, top_p: {gen_config.top_p}, temperature: {gen_config.temperature}, '
                         f'repetition_penalty: {gen_config.repetition_penalty}, step: {step},'
-                        f'ignore_eos: {gen_config.ignore_eos}, finish_reason: {finish_reason}, finished: {True}, '
+                        f'ignore_eos: {gen_config.ignore_eos}, finish_reason: {finish_reason}, '
                         f'preprocess_time: {preprocess_time:0.2f}, total_time: {cost_time:0.2f}'
                         )
             yield GenOut(warn_msg, self.id2step[session_id], len(input_ids), 0,
-                         finish_reason, cost_time=cost_time, finished=True)
+                         finish_reason, cost_time=cost_time)
             if sequence_end is True and sequence_start is False:
                 await self.end_session(session_id)
             return
@@ -799,7 +798,6 @@ class AsyncEngine(LogitsMixin):
             output_len, gen_len = 0, 0
             state = DetokenizeState(len(input_ids))
             start_ids_offset = state.ids_offset
-            finished = False
             hit_stop_word = False
             response = ''
             finish_reason = None
@@ -827,6 +825,8 @@ class AsyncEngine(LogitsMixin):
                     # This assumes the engine will stop when stop token is hit
                     if output_len and outputs.token_ids[-1] in stop_ids:
                         hit_stop_token = 1
+                        # Compatible with old logic
+                        finish_reason = 'end' if outputs.token_ids[-1] == self.tokenizer.eos_token_id else 'stop'
                         # one token and it's been skipped
                         if output_len == prev_len + 1:
                             continue
@@ -845,7 +845,9 @@ class AsyncEngine(LogitsMixin):
                         skip_special_tokens=gen_config.skip_special_tokens,
                         spaces_between_special_tokens=gen_config.spaces_between_special_tokens)
                     res = token_ids[ids_offset:]
-
+                    # _check_stop_strings
+                    if gen_config.stop_words is not None:
+                        response, hit_stop_word = self._check_stop_strings(response, gen_config.stop_words)
                     out = GenOut(response,
                                 history_len,
                                 input_len,
@@ -867,22 +869,18 @@ class AsyncEngine(LogitsMixin):
                         out.logits = outputs.logits
                         if hit_stop_token:
                             out.logits = out.logits[:-hit_stop_token]
-                    # _check_stop_strings
-                    if gen_config.stop_words is not None:
-                        response, hit_stop_word = self._check_stop_strings(response, gen_config.stop_words)
 
                     yield out
 
                     if hit_stop_word:
                         finish_reason = 'stop'
-                        await self.stop_session(session_id)
-                        break
+                        break  # will invoke GeneratorExit and cancel in turbomind
 
                 # end of generator loop
                 cost_time = (time.time() - start_time) * 1000
                 if not is_error(outputs.status):
-                    finish_reason = 'length' \
-                        if gen_len >= gen_config.max_new_tokens else 'stop'
+                    if gen_len >= gen_config.max_new_tokens:
+                        finish_reason = 'length'
                     # utf-8 char at the end means it's a potential unfinished
                     # byte sequence
                     if not response.endswith('�'):
@@ -898,8 +896,7 @@ class AsyncEngine(LogitsMixin):
                                 finish_reason,
                                 token_ids=[],
                                 cache_block_ids=outputs.cache_block_ids,
-                                cost_time=cost_time,
-                                finished=True)
+                                cost_time=cost_time)
                 else:
                     logger.error(f'session {session_id} finished, '
                                 'reason "error"')
@@ -909,8 +906,7 @@ class AsyncEngine(LogitsMixin):
                                 generate_token_len=0,
                                 finish_reason='error',
                                 token_ids=[],
-                                cost_time=cost_time,
-                                finished=True)
+                                cost_time=cost_time)
 
             # update step
             if sequence_end:
@@ -934,8 +930,7 @@ class AsyncEngine(LogitsMixin):
                         f'top_k: {gen_config.top_k}, top_p: {gen_config.top_p}, temperature: {gen_config.temperature}, '
                         f'repetition_penalty: {gen_config.repetition_penalty}, step: {step}, '
                         f'ignore_eos: {gen_config.ignore_eos}, generated_tokens: {gen_len}, '
-                        f'finish_reason: {finish_reason}, finished: {finished}, '
-                        f'{hit_msg}'
+                        f'finish_reason: {finish_reason}, {hit_msg}'
                         f'preprocess_time: {preprocess_time:0.2f}, total_time: {cost_time:0.2f}'
                         )
 
