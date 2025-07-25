@@ -107,7 +107,7 @@ test_models:
           - prompt: "Please describe Shopee in short."
             ground_truth:
               a100: "<think>\nOkay, so I need to describe Shopee in a short way. I'm not too familiar with it, but I think it's an online shopping platform. Let me try to break it down."
-              h100: "<think>\nOkay, so I need to describe Shopee in a short way. I'm not super familiar with it, but I think it's an e-commerce platform. Let me try to break it down."
+              h100: "<think>\nOkay, so I need to describe Shopee in a short way. I'm not super familiar with it, but I think it's an online shopping platform. Let me try to break it down."
               t4: "<think>\nOkay, so I need to describe Shopee in a short way. I'm not super familiar with it, but I think it's an e-commerce platform. Let me try to break it down."
               v100: "<think>\nOkay, so I need to describe Shopee in a short way. I'm not super familiar with it, but I think it's an e-commerce platform. Let me try to break it down."
             verification: startswith
@@ -460,7 +460,7 @@ test_models:
             verification: in
           - prompt: "Please describe Shopee in short."
             ground_truth:
-              h100: "<think>\nOkay, the user asked me to describe Shopee in short. Let me start by recalling what I know about Shopee. Shopee is an e-commerce platform"
+              h100: "<think>\nOkay, the user asked me to describe Shopee in short. Let me start by recalling what I know about Shopee. It's an e-commerce platform"
             verification: startswith
       fp16:
         target_gpus: ["h100"]  # 必须参数，设置可以在哪些GPU上跑，否则略过这个test case
