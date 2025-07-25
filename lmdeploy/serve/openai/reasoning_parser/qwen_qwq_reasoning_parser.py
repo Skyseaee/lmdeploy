@@ -8,7 +8,7 @@ from .reasoning_parser import ReasoningParser, ReasoningParserManager
 
 
 @ReasoningParserManager.register_module(name='qwen')
-class QwenReasoningParser(ReasoningParser):
+class QwenQwQReasoningParser(ReasoningParser):
     """Reasoning parser for Qwen QwQ model.
 
     The Qwen QwQ model uses <think>...</think> tokens to denote reasoning text. This parser extracts the reasoning

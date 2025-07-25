@@ -1043,8 +1043,7 @@ async def chat_interactive_v1(request: GenerateRequest, raw_request: Request = N
                 'generated_tokens': 0,
                 'history_tokens': 0,
                 'cost_time': 0.0,
-                'finish_reason': 'stop',
-                'finished': True
+                'finish_reason': 'stop'
             }
             return JSONResponse(ret)
         else:
@@ -1064,7 +1063,7 @@ async def chat_interactive_v1(request: GenerateRequest, raw_request: Request = N
     end_session = sequence_end and request.data.get('question', '') == '' and request.data.get('output_len', 512) == 0
     if end_session:
         await async_engine.end_session(session_id)
-        return JSONResponse(dict(traceid=request.traceid, text='', tokens=0, input_tokens=0, history_tokens=0, finish_reason='stop', finished=True))
+        return JSONResponse(dict(traceid=request.traceid, text='', tokens=0, input_tokens=0, history_tokens=0, finish_reason='stop'))
 
     # logger.warn(f"len(async_engine.id2inst): {len(async_engine.id2inst)}")
     if session_id == -1 or (sequence_start and session_id in async_engine.id2inst):
@@ -1122,7 +1121,6 @@ async def chat_interactive_v1(request: GenerateRequest, raw_request: Request = N
                                      generated_tokens=out.generate_token_len,
                                      history_tokens=out.history_token_len,
                                      cost_time=out.cost_time,
-                                     finished=out.finished,
                                      finish_reason=out.finish_reason)
 
             # data = chunk.model_dump_json()
@@ -1154,7 +1152,6 @@ async def chat_interactive_v1(request: GenerateRequest, raw_request: Request = N
                                    generated_tokens=tokens,
                                    history_tokens=history_tokens,
                                    cost_time=out.cost_time,
-                                   finished=out.finished,
                                    finish_reason=finish_reason
                                    )
             return JSONResponse(ret.dict())
