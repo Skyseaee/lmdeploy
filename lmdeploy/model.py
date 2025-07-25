@@ -1140,8 +1140,8 @@ class Qwen2d5Chat(Qwen7BChat):
             assistant='<|im_start|>assistant\n',
             eoa='<|im_end|>',
             separator='\n',
-            tools="""\n\n# Tools\n\nYou may call one or more functions to assist with the user query.\n\nYou are provided with function signatures within <tools></tools> XML tags:\n<tools>""",
-            eotools="""\n</tools>\n\nFor each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\n<tool_call>\n{"name": <function-name>, "arguments": <args-json-object>}\n</tool_call>""",
+            tools="""\n\n# Tools\n\nYou may call one or more functions to assist with the user query.\n\nYou are provided with function signatures within <tools></tools> XML tags:\n<tools>""",  # noqa
+            eotools="""\n</tools>\n\nFor each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\n<tool_call>\n{"name": <function-name>, "arguments": <args-json-object>}\n</tool_call>""",  # noqa
             stop_words=['<|im_end|>'],
             **kwargs):
 
@@ -1158,11 +1158,7 @@ class Qwen2d5Chat(Qwen7BChat):
                          stop_words=stop_words,
                          **kwargs)
 
-    def messages2prompt(self,
-                        messages,
-                        sequence_start=True,
-                        tools=None,
-                        **kwargs):
+    def messages2prompt(self, messages, sequence_start=True, tools=None, **kwargs):
         """Return the prompt that is concatenated with other elements in the
         chat template.
 
@@ -1173,12 +1169,8 @@ class Qwen2d5Chat(Qwen7BChat):
         """
         if isinstance(messages, str):
             return self.get_prompt(messages, sequence_start)
-        box_map = dict(user=self.user,
-                       assistant=self.assistant,
-                       system=self.system)
-        eox_map = dict(user=self.eoh,
-                       assistant=self.eoa + self.separator,
-                       system=self.eosys)
+        box_map = dict(user=self.user, assistant=self.assistant, system=self.system)
+        eox_map = dict(user=self.eoh, assistant=self.eoa + self.separator, system=self.eosys)
         ret = ''
         tool_prompt = ''
         if tools is not None and len(tools) > 0:
@@ -1197,13 +1189,11 @@ class Qwen2d5Chat(Qwen7BChat):
                     ret += f'{self.system}{self.meta_instruction}{self.eosys}'
 
         for index, message in enumerate(messages):
-            if (message['role'] == 'user'
-                    or (message['role'] == 'system' and index != 0)
-                    or (message['role'] == 'assistant'
-                        and message.get('tool_calls') is None)):
+            if (message['role'] == 'user' or (message['role'] == 'system' and index != 0)
+                    or (message['role'] == 'assistant' and message.get('tool_calls') is None)):
                 ret += f"{box_map[message['role']]}{get_text(message['content'])}{eox_map[message['role']]}"
             elif message['role'] == 'assistant':
-                ret += f'<|im_start|>assistant'
+                ret += '<|im_start|>assistant'
                 if message.get('content') is not None:
                     ret += f"{self.separator}{message['content']}"
 
@@ -1212,14 +1202,15 @@ class Qwen2d5Chat(Qwen7BChat):
                     for tool_call in tool_calls:
                         if tool_call.get('function') is not None:
                             tool_call = tool_call['function']
-                        ret += f'{self.separator}<tool_call>{self.separator}{{"name": "{tool_call["name"]}", "arguments": {json.dumps(tool_call["arguments"], ensure_ascii=False)}}}{self.separator}</tool_call>'
+                        if isinstance(tool_call['arguments'], str):
+                            tool_call['arguments'] = json.loads(tool_call['arguments'])
+                        ret += f'{self.separator}<tool_call>{self.separator}{{"name": "{tool_call["name"]}", "arguments": {json.dumps(tool_call["arguments"], ensure_ascii=False)}}}{self.separator}</tool_call>'  # noqa
                 ret += self.eosys
             if message['role'] == 'tool':
                 if index == 0 or messages[index - 1]['role'] != 'tool':
-                    ret += f'<|im_start|>user'
-                ret += f"{self.separator}<tool_response>{self.separator}{message['content']}{self.separator}</tool_response>"
-                if index == len(messages) - 1 or messages[index +
-                                                          1]['role'] != 'tool':
+                    ret += '<|im_start|>user'
+                ret += f"{self.separator}<tool_response>{self.separator}{message['content']}{self.separator}</tool_response>"  # noqa
+                if index == len(messages) - 1 or messages[index + 1]['role'] != 'tool':
                     ret += f'{self.eoh}'
         ret += f'{self.assistant}'
         return ret
@@ -1259,7 +1250,7 @@ class QwQPreview(Qwen2d5Chat):
 
     def __init__(
             self,
-            meta_instruction='You are a helpful and harmless assistant. You are Qwen developed by Alibaba. You should think step-by-step.',
+            meta_instruction='You are a helpful and harmless assistant. You are Qwen developed by Alibaba. You should think step-by-step.',  # noqa
             **kwargs):
         super().__init__(meta_instruction=meta_instruction, **kwargs)
 
@@ -1312,7 +1303,7 @@ class Qwen3(Qwen2d5Chat):
     def __init__(self, meta_instruction='', **kwargs):
         super().__init__(meta_instruction=meta_instruction, **kwargs)
 
-    def messages2prompt(self, messages, sequence_start=True, tools=None, tokenizer=None, chat_template_kwargs=None, **kwargs):
+    def messages2prompt(self, messages, sequence_start=True, tools=None, tokenizer=None, chat_template_kwargs=None, enable_thinking = True, **kwargs):
         if isinstance(messages, str):
             prompt = self.get_prompt(messages, sequence_start)
             if chat_template_kwargs is not None:
@@ -1330,9 +1321,13 @@ class Qwen3(Qwen2d5Chat):
                         messages,
                         tokenize=False,
                         add_generation_prompt=True,
-                        **(chat_template_kwargs if chat_template_kwargs else {})
+                        **(chat_template_kwargs if chat_template_kwargs else {}),
+                        enable_thinking=enable_thinking
                     )
-        return super().messages2prompt(messages, sequence_start, tools, tokenizer=tokenizer, **kwargs)
+        prompt = super().messages2prompt(messages, sequence_start, tools, tokenizer=tokenizer, **kwargs)
+        if enable_thinking is False:
+            prompt += '<think>\n\n</think>\n\n'
+        return prompt
 
 
     @classmethod
