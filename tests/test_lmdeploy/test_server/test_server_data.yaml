@@ -50,9 +50,9 @@ test_models:
           - prompt: "Please describe Shopee in short."
             ground_truth:
               a100: "Shopee is a leading e-commerce platform in Southeast Asia and Taiwan. It is a platform tailored for the region, "
-              h100: "Shopee is a popular e-commerce platform that allows users to buy and sell a wide range of products, including electronics, fashion, beauty, and home goods."
-              t4: "Shopee is a popular e-commerce platform that allows users to buy and sell a wide range of products, including electronics, fashion, beauty, and home goods."
-              v100: "Shopee is a popular e-commerce platform that allows users to buy and sell a wide range of products, including electronics, fashion, beauty, home goods, and more."
+              h100: "Shopee is a popular e-commerce platform that allows users to buy and sell a wide range of products, including electronics, fashion, beauty"
+              t4: "Shopee is a popular e-commerce platform that allows users to buy and sell a wide range of products, including electronics, fashion, beauty"
+              v100: "Shopee is a popular e-commerce platform that allows users to buy and sell a wide range of products, including electronics, fashion, beauty"
             verification: startswith
       awq-w4a16-kvfp16:
         target_gpus: ["a100", "h100", "t4", "v100"]
@@ -287,7 +287,7 @@ test_models:
         test_data:
           - prompt: "Please describe Shopee in short."
             ground_truth:
-              h100: " Shopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines. Shopee offers online shopping services for a variety of products"
+              h100: " Shopee is an online shopping platform that allows users to buy and sell products. It is a marketplace that connects buyers and sellers globally. It offers a wide range of products, including electronics, fashion, home & garden, sports & outdoors, etc. It offers a wide range of products"
             verification: startswith
       fp16-kvint8:
         target_gpus: ["h100"]
@@ -296,7 +296,7 @@ test_models:
         test_data:
           - prompt: "Please describe Shopee in short."
             ground_truth:
-              h100: " Shopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines. Shopee offers online shopping services for a variety of products"
+              h100: " Shopee is an online shopping platform that allows users to buy and sell products. It is a C2C marketplace that connects buyers and sellers directly. It offers various products, including electronics, fashion, home & garden, sports & outdoors, etc. It has a wide range of products"
             verification: startswith
       awq-w4a16-kvfp16:
         target_gpus: ["h100", "t4", "v100"]
@@ -307,9 +307,9 @@ test_models:
         test_data:
           - prompt: "Please describe Shopee in short."
             ground_truth:
-              h100: " Shopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines."
-              t4: " Shopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines."
-              v100: " Shopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines."
+              h100: " Shopee is an online shopping platform that allows users to buy and sell products. It offers a variety of products, including electronics, fashion, home goods, and groceries."
+              t4: " Shopee is an online shopping platform that allows users to buy and sell products. It offers a variety of products, including electronics, fashion, home goods, and groceries."
+              v100: " Shopee is an online shopping platform that allows users to buy and sell products. It offers a variety of products, including electronics, fashion, home goods, and groceries."
             verification: startswith
       fp8-kvfp8:
         target_gpus: ["h100"]
