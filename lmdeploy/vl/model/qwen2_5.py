@@ -42,7 +42,7 @@ if VLM_ENABLE_TRT:
     from lmdeploy.vl.model.onepiece.workflow import build_engine
 
 
-class ImageEncoderWrapper(torch.nn.Module):
+class _ImageEncoderWrapper(torch.nn.Module):
     """TensorRT Builder for VisionEncoder
     """
     def __init__(self, model):
@@ -50,7 +50,6 @@ class ImageEncoderWrapper(torch.nn.Module):
         self.model = model.eval().cuda()
         self.device = model.device
         self.dtype = model.dtype
-
 
     def get_cfg(self, processor, max_batch_size=1, attn_implement="eager", model_path="None"):
         """For a fixed input size images, we use dynamic batchsize else use dynamic input shape
@@ -100,7 +99,7 @@ class ImageEncoderWrapper(torch.nn.Module):
         except TypeError:
             logger.warning(f"✨OneLLM: invalid input shape {input_shapes}")
             width, height = -1, -1
-        model_name = os.path.basename(model_path)
+        model_name = os.path.basename(model_path.strip().rstrip('/'))
         model_name = os.path.join(os.path.dirname(__file__), 
                                   f"{model_name}_{max_batch_size}x{height}x{width}_L{L}x{H}_{attn_implement}_{trt_version()}")
 
@@ -217,23 +216,14 @@ class Qwen2d5VLModel(VisonModel):
     """Qwen2.5 VL model."""
 
     _arch = 'Qwen2_5_VLForConditionalGeneration'
-
-    def __init__(self,
-                 model_path: str,
-                 with_llm: bool = False,
-                 max_memory: Dict[int, int] = None,
-                 hf_config: AutoConfig = None,
-                 backend: str = '',
-                 default_device="auto"):
-        super().__init__(model_path, with_llm, max_memory, hf_config, backend)
-        """init."""
-        self.default_device = default_device
     
     def build_preprocessor(self):
-        # processor
+        check_qwen_2d5_vl_deps_install()
         from transformers import AutoProcessor
         self.processor = AutoProcessor.from_pretrained(self.model_path)
-
+        tokenizer = self.processor.tokenizer
+        image_token = self.processor.image_token
+        self.image_token_id = tokenizer.encode(image_token)[-1]
 
     def build_model(self):
         check_qwen_2d5_vl_deps_install()
@@ -290,7 +280,7 @@ class Qwen2d5VLModel(VisonModel):
         if VLM_ENABLE_TRT:
             logger.debug("✨Qwen2.5VL enable_image_trt")
             self.vision_batch_size = int(os.environ.get("ONELLM_TRT_VISION_MAX_BATCH_SIZE", 1))
-            vision_model = ImageEncoderWrapper(self.model.visual)
+            vision_model = _ImageEncoderWrapper(self.model.visual)
             cfg = vision_model.get_cfg(self.processor, 
                                        max_batch_size=self.vision_batch_size, 
                                        attn_implement=config._attn_implementation,
@@ -384,7 +374,7 @@ class Qwen2d5VLModel(VisonModel):
         prompt = chat_template.messages2prompt(prompt_messages, sequence_start)
         return prompt, IMAGE_TOKEN
 
-    def get_mrope_info(self,
+    def _get_mrope_info(self,
                        seq_len: int,
                        grid_thws: List[Tuple[int, int, int]] = None,
                        embedding_ranges: List[Tuple[int, int]] = None):
@@ -460,7 +450,7 @@ class Qwen2d5VLModel(VisonModel):
             input_ids.extend(seg_ids)
         ranges = np.stack([begins, ends], axis=1).tolist()
         # Qwen2.5VL MRope Position IDs
-        mrope_position_ids, mrope_position_delta = self.get_mrope_info(
+        mrope_position_ids, mrope_position_delta = self._get_mrope_info(
                                 seq_len=len(input_ids), grid_thws=grid_thws, embedding_ranges=ranges)
         return dict(prompt=prompt, 
                     input_ids=input_ids, 
@@ -478,38 +468,33 @@ class Qwen2d5VLModel(VisonModel):
         prompt, IMAGE_TOKEN = self.proc_messages(messages, chat_template, sequence_start)
         return self.to_pytorch_aux(messages, prompt, IMAGE_TOKEN, tokenizer, sequence_start)
 
-def qwen2d5vl_ut():
-    # import sys
-    # from lmdeploy.vl.model.onepiece.workflow import build_engine
-    from lmdeploy.vl import load_image
+def UT_Qwen2_5VL():
     from transformers import AutoConfig
-    image_list = ['https://cf.shopee.sg/file/vn-11134207-7qukw-lgbyq7x8fbav0b_tn',
-                'https://cf.shopee.sg/file/cafd5178e11af1aa5152da00072b387c_tn',
-                'https://cf.shopee.sg/file/sg-11134201-7rcbx-lsgk4siy8wv9e6_tn',
-                'https://cf.shopee.sg/file/sg-11134201-23010-2744ked6v4lv56_tn']* 4
-    images = [load_image(url) for url in image_list]
-    model_dir = "/home/wenlong.cao/models/Qwen2.5-VL-7B-Instruct"
+    from lmdeploy.vl.utils import load_image
+    model_dir = "/home/wenlong.cao/models/Qwen2.5-VL-7B-Instruct/"
+    os.environ["ONELLM_VLM_ENABLE_TRT"] = "1"
+    max_bz = 1
+    print(f"max_bz={max_bz}")
+    print(f"VLM_ENABLE_TRT={VLM_ENABLE_TRT}")
+    os.environ["ONELLM_TRT_VISION_MAX_BATCH_SIZE"] = str(max_bz)
+    messages = [
+        dict(role='user', content=[
+            dict(type='text', text="You are an AI assistent. Give me a short description for the image."),
+            dict(type='image', image=load_image('https://cf.shopee.sg/file/vn-11134207-7qukw-lgbyq7x8fbav0b').resize((448, 448)),
+                cache_hit=False),
+        ])
+    ]
     hf_config = AutoConfig.from_pretrained(model_dir, trust_remote_code=True)
     model = Qwen2d5VLModel(model_path=model_dir, with_llm=False, hf_config=hf_config)
+    model.build_preprocessor()
     model.build_model()
-    for B in [1]:
-        # warmup
-        params = [{'resized_height':512, 'resized_width':512}]* B
-        # for _ in range(3):
-        res = model.forward(images[:B], params)
-        # performance
-        start_event = torch.cuda.Event(enable_timing=True)
-        end_event = torch.cuda.Event(enable_timing=True)
-        start_event.record()
-        for i in range(10):
-            res = model.forward(images[:B], params)
-        end_event.record()
-        torch.cuda.synchronize()
-        encode_time = start_event.elapsed_time(end_event)
-        print(f"batchsize={B} time: {encode_time/10:.3f}ms")
-
+    messages = model.preprocess(messages)
+    messages = model.forward(messages, max_batch_size=max_bz)
+    print(f"messages={messages[-1]['content']}")
+    
+    
 if __name__ == "__main__":
-    qwen2d5vl_ut()
+    UT_Qwen2_5VL()
 # A100 tensorrt 
 # export ONELLM_VLM_ENABLE_TRT=1 python3 lmdeploy/vl/model/qwen2_5.py
 # 2025-04-23 09:10:47,573 - lmdeploy - INFO - workflow.py:72 - 🔔[ONELLM] speed up 3.67, 58.187ms vs 15.858ms

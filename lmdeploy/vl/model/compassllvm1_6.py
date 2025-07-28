@@ -47,7 +47,6 @@ def find_closest_aspect_ratio(aspect_ratio, target_ratios, width, height,
                 best_ratio = ratio
     return best_ratio
 
-
 def dynamic_preprocess(image,
                        min_num=1,
                        max_num=12,
@@ -92,11 +91,14 @@ def dynamic_preprocess(image,
     return processed_images
 
 
-class ImageEncoderWrapperV1d6(object):
+class _VLImageEncoder(torch.nn.Module):
     """TensorRT Builder for VisionEncoder
     """
     def __init__(self, vlm, config):
-        super().__init__(vlm, config)
+        super().__init__()
+        self.config = config
+        self.dtype = vlm.dtype
+        self.device = vlm.device
         self.model = vlm.vision_model
         self.mlp1 = vlm.mlp1
         self.downsample_ratio = config.downsample_ratio
@@ -119,6 +121,7 @@ class ImageEncoderWrapperV1d6(object):
             'precision': 'fp16',
             'max_workspace_size': 40*2**30,
             'validate_method': 'cosine_distance',
+            'opset_version': 17
         }
         cfg["input_dict"] = gen_input_dict(cfg["input_names"], cfg["input_shapes"], cfg["input_dtypes"])
         return cfg
@@ -155,7 +158,7 @@ class ImageEncoderWrapperV1d6(object):
     
 
 @VISION_MODELS.register_module()
-class CompassLLVM_V1d6(VisonModel):
+class CompassVisionModel1d6(VisonModel):
     _arch = 'CompassLLVM'
     def __init__(self,
                  model_path: str,
@@ -237,7 +240,7 @@ class CompassLLVM_V1d6(VisonModel):
 
         if VLM_ENABLE_TRT:
             logger.warning("✨CompassLLVM v1.6 enable_image_trt")
-            self.vision_model = ImageEncoderWrapperV1d6(self.model, self.hf_config)
+            self.vision_model = _VLImageEncoder(self.model, self.hf_config)
             self.vision_batch_size = max(int(os.environ.get("ONELLM_TRT_VISION_MAX_BATCH_SIZE", "1")), 16)
             cfg = self.vision_model.get_cfg(self.hf_config.vision_config, self.vision_batch_size)
             self.trt_vision_model = build_engine(cfg=cfg, model=self.vision_model, device=self.vision_model.device)
@@ -327,28 +330,30 @@ class CompassLLVM_V1d6(VisonModel):
         prompt, IMAGE_TOKEN = self.proc_messages(messages, chat_template, sequence_start)
         return self.to_turbomind_aux(messages, prompt, IMAGE_TOKEN, tokenizer, sequence_start)
 
-def compassllvm_ut():
-    for max_bz in [1]:
-        print(f"max_bz={max_bz}")
-        os.environ["ONELLM_VLM_ENABLE_TRT"] = "1"
-        os.environ["ONELLM_TRT_VISION_MAX_BATCH_SIZE"] = str(max_bz)
-        from transformers import AutoConfig
-        model_dir = "/data/models/Compassllvm_V1_6_pre"
-        hf_config = AutoConfig.from_pretrained(model_dir, trust_remote_code=True)
-        model = CompassLLVM_V1d6(model_path=model_dir, with_llm=False, hf_config=hf_config)
-        model.build_model()
-        print(f"build max_bz={max_bz} model done")
-        if hf_config.version == "1.6":
-            cfg = model.vision_model.get_cfg(hf_config.vision_config, max_bz)
-        else:
-            cfg = model.vision_model.get_cfg(hf_config.visual_tokenizer_config, max_bz)
-        input_dict = {}
-        for k, v in cfg['input_dict'].items():
-            input_dict[k] = v.cuda()
-        ret = model.trt_vision_model(input_dict)
-        print(ret.shape)
-        print(ret.dtype)
-        print(ret)
-
+def UT_CompassLLVM1_6():
+    from transformers import AutoConfig
+    from lmdeploy.vl.utils import load_image
+    model_dir = "/home/wenlong.cao/models/compassllvm-v1-6/"
+    os.environ["ONELLM_VLM_ENABLE_TRT"] = "1"
+    max_bz = 1
+    print(f"max_bz={max_bz}")
+    print(f"VLM_ENABLE_TRT={VLM_ENABLE_TRT}")
+    os.environ["ONELLM_TRT_VISION_MAX_BATCH_SIZE"] = str(max_bz)
+    messages = [
+        dict(role='user', content=[
+            dict(type='text', text="You are an AI assistent. Give me a short description for the image."),
+            dict(type='image', image=load_image('https://cf.shopee.sg/file/vn-11134207-7qukw-lgbyq7x8fbav0b').resize((448, 448)),
+                cache_hit=False),
+        ])
+    ]
+    hf_config = AutoConfig.from_pretrained(model_dir, trust_remote_code=True)
+    model = CompassVisionModel1d6(model_path=model_dir, with_llm=False, hf_config=hf_config)
+    model.build_preprocessor()
+    model.build_model()
+    messages = model.preprocess(messages)
+    messages = model.forward(messages, max_batch_size=max_bz)
+    print(f"messages={messages[-1]['content']}")
+    
+    
 if __name__ == "__main__":
-    compassllvm_ut()
+    UT_CompassLLVM1_6()

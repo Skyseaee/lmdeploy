@@ -30,8 +30,8 @@ from .qwen2 import Qwen2VLModel  # noqa F401
 from .qwen2_5 import Qwen2d5VLModel  # noqa F401
 from .xcomposer2 import Xcomposer2VisionModel  # noqa F401
 from .yi import YiVisionModel  # noqa F401
-from .compassllvm import CompassLLVM  # noqa F401
-from .compassllvm1_6 import CompassLLVM_V1d6  # noqa F401
+from .compassllvm import CompassVisionModel  # noqa F401
+from .compassllvm1_6 import CompassVisionModel1d6  # noqa F401
 
 logger = get_logger('lmdeploy')
 

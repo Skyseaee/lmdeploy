@@ -27,7 +27,7 @@ if VLM_ENABLE_TRT:
     from lmdeploy.vl.model.onepiece.workflow import build_engine
 
 
-class ImagePreprocessor(object):
+class _ImagePreprocessor(object):
     """Image Preprocess torchvision version
     
     """
@@ -101,7 +101,7 @@ def post_process(n, features):
     return features
 
 
-class ImageEncoderWrapper(torch.nn.Module):
+class _VLImageEncoder(torch.nn.Module):
     """TensorRT Builder for VisionEncoder
     """
     def __init__(self, vision_model, config: AutoConfig=None):
@@ -144,7 +144,7 @@ class ImageEncoderWrapper(torch.nn.Module):
 
 
 @VISION_MODELS.register_module()
-class CompassLLVM(VisonModel):
+class CompassVisionModel(VisonModel):
     _arch = 'CompassLLVM'
     # def __init__(self,
     #              model_path: str,
@@ -172,7 +172,7 @@ class CompassLLVM(VisonModel):
         with init_empty_weights(), warnings.catch_warnings():
             warnings.simplefilter('ignore')
             model = AutoModelForCausalLM.from_config(self.hf_config, trust_remote_code=True)
-        self.tv_preprocess_image = ImagePreprocessor(model.visual_tokenizer.image_processor)
+        self.tv_preprocess_image = _ImagePreprocessor(model.visual_tokenizer.image_processor)
         self.default_preprocess_image = model.visual_tokenizer.preprocess_image
         image_size = self.hf_config.visual_tokenizer_config.backbone_config.image_size
         patch_size = self.hf_config.visual_tokenizer_config.backbone_config.patch_size
@@ -205,8 +205,8 @@ class CompassLLVM(VisonModel):
         # BUILD vision model
         if VLM_ENABLE_TRT:
             logger.warning("✨CompassLLVM enable_image_trt")
-            self.vision_model = ImageEncoderWrapper(self.model.visual_tokenizer, self.model.visual_tokenizer.config)
-            self.vision_batch_size = int(os.environ.get("ONELLM_TRT_VISION_MAX_BATCH_SIZE", "32"))
+            self.vision_model = _VLImageEncoder(self.model.visual_tokenizer, self.model.visual_tokenizer.config)
+            self.vision_batch_size = int(os.environ.get("ONELLM_TRT_VISION_MAX_BATCH_SIZE", "16"))
             cfg = self.vision_model.get_cfg(self.hf_config.visual_tokenizer_config, self.vision_batch_size)
             self.trt_vision_model = build_engine(
                 cfg=cfg,
@@ -235,7 +235,7 @@ class CompassLLVM(VisonModel):
         messages.append(dict(role='preprocess', content=outputs))
         return messages
 
-    def encode(self, pixel_values: torch.Tensor):
+    def _encode(self, pixel_values: torch.Tensor):
         if VLM_ENABLE_TRT:
             features = self.trt_vision_model({"pixel_values":pixel_values}, dtype=self.vision_model.dtype)
             return features
@@ -257,7 +257,7 @@ class CompassLLVM(VisonModel):
             pixel_values = [x["pixel_values"].to(dtype=self.vision_model.dtype, device=self.vision_model.device) for x in inputs[idx:idx + max_batch_size]]
             pixel_values = torch.cat(pixel_values, dim=0)
             logger.info(f'vision forward shape: {pixel_values.shape}')
-            visual_tokens = self.encode(pixel_values)
+            visual_tokens = self._encode(pixel_values)
             vte_out = self.model.vte(visual_tokens)
             image_features = torch.split(vte_out, split_size_or_sections=1, dim=0)
             outputs.extend([x.squeeze() for x in image_features])
@@ -287,25 +287,30 @@ class CompassLLVM(VisonModel):
         return self.to_turbomind_aux(messages, prompt, IMAGE_TOKEN, tokenizer, sequence_start)
 
 
-def compassllvm_ut():
-    for max_bz in [1]:
-        print(f"max_bz={max_bz}")
-        os.environ["ONELLM_VLM_ENABLE_TRT"] = "1"
-        os.environ["ONELLM_TRT_VISION_MAX_BATCH_SIZE"] = str(max_bz)
-        from transformers import AutoConfig
-        model_dir = "/data/models/Compassllvm_V1_0"
-        hf_config = AutoConfig.from_pretrained(model_dir, trust_remote_code=True)
-        model = CompassLLVM(model_path=model_dir, with_llm=False, hf_config=hf_config)
-        model.build_model()
-        print(f"build max_bz={max_bz} model done")
-        cfg = model.vision_model.get_cfg(hf_config.visual_tokenizer_config, max_bz)
-        input_dict = {}
-        for k, v in cfg['input_dict'].items():
-            input_dict[k] = v.cuda()
-        ret = model.trt_vision_model(input_dict)
-        print(ret.shape)
-        print(ret.dtype)
-        print(ret)
-
+def UT_CompassLLVM1_0():
+    from transformers import AutoConfig
+    from lmdeploy.vl.utils import load_image
+    model_dir = "/home/wenlong.cao/models/compassllvm-v1-0/"
+    os.environ["ONELLM_VLM_ENABLE_TRT"] = "1"
+    max_bz = 1
+    print(f"max_bz={max_bz}")
+    print(f"VLM_ENABLE_TRT={VLM_ENABLE_TRT}")
+    os.environ["ONELLM_TRT_VISION_MAX_BATCH_SIZE"] = str(max_bz)
+    messages = [
+        dict(role='user', content=[
+            dict(type='text', text="You are an AI assistent. Give me a short description for the image."),
+            dict(type='image', image=load_image('https://cf.shopee.sg/file/vn-11134207-7qukw-lgbyq7x8fbav0b'),
+                resize_width=448, resize_height=448, cache_hit=False),
+        ])
+    ]
+    hf_config = AutoConfig.from_pretrained(model_dir, trust_remote_code=True)
+    model = CompassVisionModel(model_path=model_dir, with_llm=False, hf_config=hf_config)
+    model.build_model()
+    model.build_preprocessor()
+    messages = model.preprocess(messages)
+    messages = model.forward(messages, max_batch_size=max_bz)
+    print(f"messages={messages[-1]['content']}")
+    
+    
 if __name__ == "__main__":
-    compassllvm_ut()
+    UT_CompassLLVM1_0()
