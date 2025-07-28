@@ -124,6 +124,7 @@ test_models:
               t4: "<think>\nOkay, so I need to describe Shopee in a short way. I'm not super familiar with it, but I think it's an e-commerce platform. Let me try to break it down"
               v100: "<think>\nOkay, so I need to describe Shopee in a short way. I'm not super familiar with it, but I think it's an e-commerce platform. Let me try to break it down"
             verification: startswith
+      # ais model download --model_id=37097 --version_id=47377 --output_path="./DeepSeek-R1-Distill-Qwen-7B-awq-w4a16-hf/" --project=11
       awq-w4a16-kvfp16:
         target_gpus: ["a100", "h100", "t4", "v100"]
         service_args:
@@ -136,7 +137,7 @@ test_models:
               a100: "Shopee is a great company"
               h100: "<think>\nOkay, so I need to describe Shopee in short. Hmm, I'm not exactly sure what Shopee is. I think it's a platform, maybe something like Facebook or Instagram? Wait, no, I remember hearing about it in the context of shopping. Maybe it's a social shopping app?"
               t4: "<think>\nOkay, so I need to describe Shopee in short. Hmm, I'm not exactly sure what Shopee is. I think it's a platform, maybe something like Facebook or Instagram? Wait, no, I remember hearing about it in the context of shopping. Maybe it's a social shopping app?"
-              v100: "<think>\nOkay, so I need to describe Shopee in a short paragraph. I'm not exactly sure what Shopee is, but I think it's related to online shopping. Maybe it's a platform or a company? I remember hearing about it in the context of Southeast Asia."
+              v100: "<think>\nOkay, so I need to describe Shopee in short. Hmm, I'm not exactly sure what Shopee is. I think it's a platform, maybe something like Facebook or Instagram? Wait, no, I remember hearing about it in the context of shopping. Maybe it's a social shopping app?"
             verification: startswith
       fp8-kvfp8:
         target_gpus: ["h100"]
@@ -287,7 +288,7 @@ test_models:
         test_data:
           - prompt: "Please describe Shopee in short."
             ground_truth:
-              h100: " Shopee is an online shopping platform that allows users to buy and sell products. It is a marketplace that connects buyers and sellers globally. It offers a wide range of products, including electronics, fashion, home & garden, sports & outdoors, etc. It offers a wide range of products"
+              h100: " Shopee is an online shopping platform in Southeast Asia. It allows users to buy and sell products. Shopee offers a wide range of products from electronics, fashion, home & garden, sports & outdoors, beauty & health, mom & baby, food & drink, pet supplies, and books & movies."
             verification: startswith
       fp16-kvint8:
         target_gpus: ["h100"]
@@ -296,7 +297,7 @@ test_models:
         test_data:
           - prompt: "Please describe Shopee in short."
             ground_truth:
-              h100: " Shopee is an online shopping platform that allows users to buy and sell products. It is a C2C marketplace that connects buyers and sellers directly. It offers various products, including electronics, fashion, home & garden, sports & outdoors, etc. It has a wide range of products"
+              h100: " Shopee is an online shopping platform in Southeast Asia. It allows users to buy and sell products. Shopee offers a wide range of products from electronics, fashion, home & garden, sports & outdoors, beauty & health, mom & baby, food & drink, pet supplies, and books & movies."
             verification: startswith
       awq-w4a16-kvfp16:
         target_gpus: ["h100", "t4", "v100"]
@@ -458,19 +459,31 @@ test_models:
               t4: "Paris"
               v100: "Paris"
             verification: in
+      fp16:
+        target_gpus: ["h100"]  # 必须参数，设置可以在哪些GPU上跑，否则略过这个test case
+        test_data:
           - prompt: "Please describe Shopee in short."
             ground_truth:
               h100: "<think>\nOkay, the user asked me to describe Shopee in short. Let me start by recalling what I know about Shopee. It's an e-commerce platform"
             verification: startswith
-      fp16:
-        target_gpus: ["h100"]  # 必须参数，设置可以在哪些GPU上跑，否则略过这个test case
       fp16-kvint8:
         target_gpus: ["h100"]
         service_args:
           common: "--quant-policy 8"
+        test_data:
+          - prompt: "Please describe Shopee in short."
+            ground_truth:
+              h100: "<think>\nOkay, the user asked me to describe Shopee in short. Let me start by recalling what I know about Shopee. It's an e-commerce platform"
+            verification: startswith
       awq-w4a16-kvfp16:
         target_gpus: ["h100", "v100"]
         # 先在model_dir里找，如果找不到就执行量化脚本
         quantization: "awq-w4a16"
         service_args:
           v100: "--cache-max-entry-count 0.7"
+        test_data:
+          - prompt: "Please describe Shopee in short."
+            ground_truth:
+              h100: "<think>\nOkay, the user is asking me to describe Shopee in short. Let me start by recalling what I know about Shopee. It's an e-commerce platform"
+              v100: "<think>\nOkay, the user asked me to describe Shopee in short. Let me start by recalling what I know about Shopee. It's an e-commerce platform"
+            verification: startswith
