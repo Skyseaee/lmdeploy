@@ -43,7 +43,7 @@ class VLAsyncEngine(AsyncEngine):
             )
 
         self.enable_vl_cache = bool(os.getenv('ONELLM_ENABLE_VL_CACHE',"ONELLM_VL_CACHE_BACKEND" in os.environ)) and self.backend == 'turbomind'
-        logger.info("enable_vl_cache: {self.enable_vl_cache}")
+        logger.info(f"enable_vl_cache: {self.enable_vl_cache}")
         self.embedding_cache = init_image_embedding_cache(
                     kv_backend=os.getenv("ONELLM_VL_CACHE_BACKEND", "LRU_CACHE").upper(), 
                     model_path=model_path)
@@ -110,7 +110,6 @@ class VLAsyncEngine(AsyncEngine):
                         x.update(cache_hit=True)
                     else:
                         feats.append(None)
-                        x.update(cache_hit=False)
                         nohit_indices.append(ImageEmbedKey(hash=hash_key, index=image_idx))
                         no_hit_num += 1
                     image_idx += 1
@@ -192,7 +191,7 @@ class VLAsyncEngine(AsyncEngine):
                     try:
                         url = data.pop('url')
                         image = load_image(url)
-                        data.update(type='image', image=image)
+                        data.update(type='image', image=image, cache_hit=False)
                         message['content'].append(data)
                     except KeyError:
                         logger.error(f'invalid format {message}')
@@ -218,7 +217,7 @@ class VLAsyncEngine(AsyncEngine):
                     data = item['image_data'].copy()
                     try:
                         image = data.pop('data')
-                        data.update(type='image', image=image)
+                        data.update(type='image', image=image, cache_hit=False)
                         message['content'].append(data)
                     except KeyError:
                         logger.error(f'invalid format {message}')

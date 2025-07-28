@@ -583,8 +583,6 @@ class ImageEmbedKey:
     index: int = -1
     
 def init_image_embedding_cache(kv_backend, **kwargs):
-    kv_backend = os.getenv("ONELLM_VL_CACHE_BACKEND", "LRU_CACHE").upper()
-    # kvcache backend support ["LOCAL_MEMORY", "MOONCAKE", "LRU_CACHE"]
     if kv_backend in ["LOCAL_MEMORY", "MOONCAKE"]:
         # check_kvcache_deps_install()
         os.environ['BACKEND'] = kv_backend

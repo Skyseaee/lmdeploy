@@ -36,6 +36,17 @@ from .compassllvm1_6 import CompassLLVM_V1d6  # noqa F401
 logger = get_logger('lmdeploy')
 
 
+def enable_flash_attention(config):
+    if not os.environ.get("ONELLM_ENABLE_FLASH_ATTN", False):
+        return
+
+    if hasattr(config, "_attn_implementation"):
+        attn_impl_ = config._attn_implementation
+        from lmdeploy.vl.model.onepiece.utils import is_flash_attn_2_available
+        if is_flash_attn_2_available(install_dependencies=True):
+            attn_impl_ = "flash_attention_2"
+        setattr(config, "_attn_implementation", attn_impl_)
+
 def load_vl_model(model_path: str,
                   backend: str,
                   with_llm: bool = False,
@@ -60,6 +71,14 @@ def load_vl_model(model_path: str,
         max_memory = {i: torch.cuda.mem_get_info(i)[0] for i in range(tp)}
 
     _, hf_config = get_model_arch(model_path)
+
+    # set auto/bfloat16/float16
+    if hasattr(backend_config, "dtype") and backend_config.dtype == 'bfloat16':
+        setattr(hf_config, "torch_dtype", torch.bfloat16)
+    else:
+        setattr(hf_config, "torch_dtype", torch.float16)
+    enable_flash_attention(hf_config)
+
     kwargs = dict(model_path=model_path, with_llm=with_llm, max_memory=max_memory, hf_config=hf_config, backend=backend)
 
     for name, module in VISION_MODELS.module_dict.items():
