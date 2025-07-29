@@ -428,6 +428,7 @@ async def chat_completions_v1(raw_request: Request = None):
     enable_thinking = True
     if chat_template_kwargs and isinstance(chat_template_kwargs, dict):
         enable_thinking = chat_template_kwargs.get('enable_thinking', True)
+    # request.enable_thinking has higer priority than chat_template_kwargs
     if hasattr(request, 'enable_thinking') and request.enable_thinking is not None:
         enable_thinking = request.enable_thinking
     result_generator = VariableInterface.async_engine.generate(
@@ -440,8 +441,7 @@ async def chat_completions_v1(raw_request: Request = None):
         sequence_end=True,
         do_preprocess=do_preprocess,
         adapter_name=adapter_name,
-        enable_thinking=enable_thinking,
-        chat_template_kwargs=chat_template_kwargs,
+        enable_thinking=enable_thinking
     )
 
     def create_stream_response_json(index: int,

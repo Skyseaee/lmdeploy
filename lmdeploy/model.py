@@ -1303,13 +1303,11 @@ class Qwen3(Qwen2d5Chat):
     def __init__(self, meta_instruction='', **kwargs):
         super().__init__(meta_instruction=meta_instruction, **kwargs)
 
-    def messages2prompt(self, messages, sequence_start=True, tools=None, tokenizer=None, chat_template_kwargs=None, enable_thinking = True, **kwargs):
+    def messages2prompt(self, messages, sequence_start=True, tools=None, tokenizer=None, enable_thinking = True, **kwargs):
         if isinstance(messages, str):
             prompt = self.get_prompt(messages, sequence_start)
-            if chat_template_kwargs is not None:
-                enable_thinking = chat_template_kwargs.get("enable_thinking", True)
-                if enable_thinking is False:
-                    prompt += '<think>\n\n</think>\n\n'
+            if enable_thinking is False:
+                prompt += '<think>\n\n</think>\n\n'
             return prompt
 
         from lmdeploy.tokenizer import HuggingFaceTokenizer
@@ -1321,7 +1319,6 @@ class Qwen3(Qwen2d5Chat):
                         messages,
                         tokenize=False,
                         add_generation_prompt=True,
-                        **(chat_template_kwargs if chat_template_kwargs else {}),
                         enable_thinking=enable_thinking
                     )
         prompt = super().messages2prompt(messages, sequence_start, tools, tokenizer=tokenizer, **kwargs)

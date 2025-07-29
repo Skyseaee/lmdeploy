@@ -568,7 +568,6 @@ class AsyncEngine(LogitsMixin):
                                 adapter_name: str,
                                 tools: Optional[List[object]] = None,
                                 enable_thinking: Optional[bool] = None,
-                                chat_template_kwargs: Optional[Dict] = None,
                                 **kwargs):
         if do_preprocess:
             # use adapter's chat template if possible
@@ -581,8 +580,7 @@ class AsyncEngine(LogitsMixin):
                                                sequence_start,
                                                tools=tools,
                                                tokenizer=self.tokenizer,
-                                               enable_thinking=enable_thinking,
-                                               chat_template_kwargs=chat_template_kwargs)
+                                               enable_thinking=enable_thinking)
         if prompt is None:
             raise ValueError(
                 f'You are using base template to handle chat task. Please specify a `--chat-template` name chosen from `lmdeploy list` if you want to use OpenAI messages input.'  # noqa
@@ -660,7 +658,6 @@ class AsyncEngine(LogitsMixin):
             input_ids: Optional[List] = None,
             enable_thinking: Optional[bool] = None,
             traceid: Optional[Union[str, int]] = None,
-            chat_template_kwargs: Optional[Dict] = None,
             **kwargs):
         """Generate responses.
 
@@ -718,8 +715,7 @@ class AsyncEngine(LogitsMixin):
                                                         sequence_start,
                                                         adapter_name,
                                                         tools=tools,
-                                                        enable_thinking=enable_thinking,
-                                                        chat_template_kwargs=chat_template_kwargs)
+                                                        enable_thinking=enable_thinking)
             preprocess_time = (time.time() - start_time) * 1000
             prompt = prompt_input['prompt']
             input_ids = prompt_input['input_ids']
