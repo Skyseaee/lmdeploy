@@ -2136,13 +2136,18 @@ class CompassLLVMChat(BaseChatTemplate):
                     logger.warn("get model_name from config.json")
                     if config.get("version", "1.0") == "1.6":
                         return "compassllvm-1d6"
+                    if config.get("version", "1.0") == "2.0":
+                        return "compassllvm-smoe"
                     return "compassllvm"
 
         path = model_path.lower().replace("-", "_")
-        if ("compass" in path and "llvm" in path):
+        if ("compass" in path and "llvm" in path) or "mllm" in path:
             if ("1.6" in path) or ("1d6" in path) or ("1_6"  in path):
                 return "compassllvm-1d6"
+            if ("2.0" in path) or ("2_0"  in path):
+                return "compassllvm-smoe"
             return 'compassllvm'
+
 
 @MODELS.register_module(name='compassllvm-1d6')
 class CompassLLVM1d6Chat(BaseChatTemplate):
@@ -2184,6 +2189,10 @@ class CompassLLVM1d6Chat(BaseChatTemplate):
         if sequence_start:
             prompt = self.bos_token + prompt
         return prompt
+
+@MODELS.register_module(name='compassllvm-smoe')
+class CompassLLVMSMoEChat(CompassLLVMChat):
+    pass
 
 @MODELS.register_module(name='molmo')
 class Molmo(BaseChatTemplate):

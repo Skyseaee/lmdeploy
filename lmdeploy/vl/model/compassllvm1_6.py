@@ -175,11 +175,9 @@ class CompassVisionModel1d6(VisonModel):
         """check whether the config match the model."""
         arch = config.architectures[0]
         if arch == cls._arch and hasattr(config, 'llm_config') and hasattr(config, 'vision_config'):
-            if hasattr(config.llm_config, "num_experts"):
-                setattr(config, "version", "2.0")
-            else:
+            if not hasattr(config.llm_config, "num_experts"):
                 setattr(config, "version", "1.6")
-            return True
+                return True
         return False
 
     def build_preprocessor(self):
@@ -202,7 +200,8 @@ class CompassVisionModel1d6(VisonModel):
                         if img.mode != 'RGB' else img),
             transforms.Resize((input_size, input_size),
                         interpolation=resample_mode),
-            transforms.ToTensor(),
+            transforms.ToImage(),
+            transforms.ToDtype(torch.float32, scale=True),
             transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
         ])
 
@@ -330,6 +329,30 @@ class CompassVisionModel1d6(VisonModel):
         prompt, IMAGE_TOKEN = self.proc_messages(messages, chat_template, sequence_start)
         return self.to_turbomind_aux(messages, prompt, IMAGE_TOKEN, tokenizer, sequence_start)
 
+@VISION_MODELS.register_module()
+class CompassSMoEVisionModel(CompassVisionModel1d6):
+    @classmethod
+    def match(cls, config: AutoConfig):
+        """check whether the config match the model."""
+        arch = config.architectures[0]
+        if arch == cls._arch and hasattr(config, 'llm_config') and hasattr(config, 'vision_config'):
+            if hasattr(config.llm_config, "num_experts"):
+                setattr(config, "version", "2.0")
+            return True
+        return False
+    def build_preprocessor(self):
+        input_size = self.hf_config.vision_config.image_size
+        resample_mode = transforms.InterpolationMode.BILINEAR
+        self.image_transform = transforms.Compose([
+            transforms.Lambda(lambda img: img.convert('RGB')
+                        if img.mode != 'RGB' else img),
+            transforms.Resize((input_size, input_size),
+                        interpolation=resample_mode),
+            transforms.ToImage(),
+            transforms.ToDtype(torch.float32, scale=True),
+            transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
+        ])
+
 def UT_CompassLLVM1_6():
     from transformers import AutoConfig
     from lmdeploy.vl.utils import load_image
@@ -354,6 +377,6 @@ def UT_CompassLLVM1_6():
     messages = model.forward(messages, max_batch_size=max_bz)
     print(f"messages={messages[-1]['content']}")
     
-    
+
 if __name__ == "__main__":
     UT_CompassLLVM1_6()
