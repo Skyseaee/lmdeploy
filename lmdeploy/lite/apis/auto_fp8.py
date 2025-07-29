@@ -86,9 +86,9 @@ def auto_fp8(model: str,
             model_path=model_path)
         # fp8 calibrated on GPU
         with init_empty_weights():
-            model = model
-        model = load_checkpoint_and_dispatch(
-            model, model_path, device_map="auto"
+            vl_model = vl_model
+        vl_model = load_checkpoint_and_dispatch(
+            vl_model, model_path, device_map="auto"
         )
 
     kv_cache_quant_layers = []
@@ -134,14 +134,15 @@ def auto_fp8(model: str,
                                ))
     model.config.update(dict(quantization_config=quantization_config))
 
-    print(model)
     # Create work directory if not exists
     work_dir = Path(work_dir)
     work_dir.mkdir(parents=True, exist_ok=True)
 
     if vl_model:
+        print(vl_model)
         save_vl_model(vl_model, model_path, work_dir)
     else:
+        print(model)
         model.save_pretrained(work_dir)
     tokenizer.save_pretrained(work_dir)
     print(f"The model is saved to {work_dir}")

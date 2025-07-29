@@ -97,3 +97,24 @@ def load_vl_model(model_path: str,
             raise
 
     raise ValueError(f'unsupported vl model with config {hf_config}')
+
+def vl_model_with_tokenizer(model_path: str, with_llm: bool = True):
+    """load visual model."""
+    vl_model = load_vl_model(model_path, backend='pytorch', with_llm=with_llm).vl_model
+    llm = vl_model
+    if hasattr(vl_model, 'language_model'):  # deepseek vl
+        llm = vl_model.language_model
+    elif hasattr(vl_model, 'llm'):  # MiniCPMV
+        llm = vl_model.llm
+    elif hasattr(vl_model, 'visual') and hasattr(vl_model, 'model'): # Qwen2.5VL
+        if hasattr(vl_model.model, "model"):
+            llm = vl_model.model
+    else:
+        raise Exception(f"LLM model not found in {vl_model}")
+    
+    llm.config.use_cache = False
+    llm.half().eval()
+    from transformers import AutoTokenizer
+    tokenizer = AutoTokenizer.from_pretrained(model_path,
+                                              trust_remote_code=True)
+    return vl_model, llm, tokenizer
