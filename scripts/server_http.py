@@ -6,11 +6,7 @@ import subprocess
 import sys
 from aipinfer import logger
 from lmdeploy.cli.serve import SubCliServe
-from lmdeploy.turbomind.generate_gemm_config import main
 
-def gemm_tune(tp: int, max_bs: int, model_path: str):
-    logger.info(f"Gemm tune with tp:{tp}, max_bs:{max_bs}")
-    main(tensor_para_size=tp, max_batch_size=max_bs, model_path=model_path)
 
 def set_env_vars_to_args(config_dict):
     for key in config_dict.keys():
@@ -154,8 +150,6 @@ def server_http(config_path: str):
 
     server_args = SubCliServe.parser.parse_args(args_list)
 
-    # gemm_tune, bs:1,2,3,4
-    gemm_tune(config_dict["tp"], 4, model_path)
     logger.info(f"Start http service with params: {server_args}")
     SubCliServe.api_server(server_args)
 
