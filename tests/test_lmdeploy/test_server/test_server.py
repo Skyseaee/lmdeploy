@@ -60,7 +60,8 @@ def quantize_model(model_path, precision, service_args):
     device_id = ",".join(map(str, range(int(find_tp.group(1) if find_tp else "1"))))
     quant_model_path = f"{model_path}-{precision}-hf"
     config_file = os.path.join(quant_model_path, "config.json")
-    if ('compass-13b' in model_path) or (not os.path.exists(config_file)):
+    is_hopper = check_gpu()[0]
+    if (is_hopper and 'compass-13b' in model_path) or (not os.path.exists(config_file)):
         print(f"Missing {config_file}, starting quantization...")
         cmd = [
             "bash", "/workspace/scripts/convert_compress_model.sh",

@@ -191,7 +191,7 @@ test_models:
               h100: "\n\nShopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines."
             verification: startswith
       awq-w4a16-kvfp16:
-        target_gpus: ["h100", "v100"]
+        target_gpus: ["h100", "v100", "t4"]
         service_args:
           t4: "--tp 1 --cache-max-entry-count 0.6"
         # 先在model_dir里找，如果找不到就执行量化脚本
@@ -201,6 +201,7 @@ test_models:
             ground_truth:
               h100: " \n\nShopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines."
               v100: "\n\nShopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines."
+              t4: " \n\nShopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines."
             verification: startswith
       fp8-kvfp8:
         target_gpus: ["h100"]
@@ -261,13 +262,13 @@ test_models:
         service_args:
           common: "--quant-policy 16"
   ##################################
-  compass-smoe-s2_03162_ckp1648_off_dpo_001:
+  compass-smoe-v2:
     model_info:
       # 如果在model_dir里没找到，就去model_repo下载
       model_repo:
-        model_id: 36386
-        version_id: 48252
-        project_id: 88  # 默认是0，从official仓库下载
+        model_id: 37266
+        version_id: 49080
+        project_id: 0  # 默认是0，从official仓库下载
     service_info:
       common:
         # 放一些通用的service参数和测试case
@@ -288,7 +289,7 @@ test_models:
         test_data:
           - prompt: "Please describe Shopee in short."
             ground_truth:
-              h100: " Shopee is an online shopping platform in Southeast Asia. It allows users to buy and sell products. Shopee offers a wide range of products from electronics, fashion, home & garden, sports & outdoors, beauty & health, mom & baby, food & drink, pet supplies, and books & movies."
+              h100: " Shopee is an **online shopping platform** in Southeast Asia, primarily serving users in Singapore, Malaysia, Thailand, and Indonesia. It offers a wide range of products, including electronics, fashion, home & garden, sports & outdoors, mom & baby, etc."
             verification: startswith
       fp16-kvint8:
         target_gpus: ["h100"]
@@ -297,7 +298,7 @@ test_models:
         test_data:
           - prompt: "Please describe Shopee in short."
             ground_truth:
-              h100: " Shopee is an online shopping platform in Southeast Asia. It allows users to buy and sell products. Shopee offers a wide range of products from electronics, fashion, home & garden, sports & outdoors, beauty & health, mom & baby, food & drink, pet supplies, and books & movies."
+              h100: " Shopee is an **online shopping platform** in Southeast Asia, primarily serving users in Singapore, Malaysia, Thailand, and Indonesia. It offers a wide range of products, including electronics, fashion, home & garden, sports & outdoors, mom & baby, etc."
             verification: startswith
       awq-w4a16-kvfp16:
         target_gpus: ["h100", "t4", "v100"]
@@ -308,9 +309,9 @@ test_models:
         test_data:
           - prompt: "Please describe Shopee in short."
             ground_truth:
-              h100: " Shopee is an online shopping platform that allows users to buy and sell products. It offers a variety of products, including electronics, fashion, home goods, and groceries."
-              t4: " Shopee is an online shopping platform that allows users to buy and sell products. It offers a variety of products, including electronics, fashion, home goods, and groceries."
-              v100: " Shopee is an online shopping platform that allows users to buy and sell products. It offers a variety of products, including electronics, fashion, home goods, and groceries."
+              h100: " Shopee is an **online shopping platform** originating from **Singapore**, now a **regional e-commerce hub** in Southeast Asia, offering a wide range of products"
+              t4: " Shopee is an **online shopping platform** originating from **Singapore**, now a **regional e-commerce hub** in Southeast Asia, offering a wide range of products"
+              v100: " Shopee is an **online shopping platform** originating from **Singapore**, now a **regional e-commerce hub** in Southeast Asia, offering a wide range of products"
             verification: startswith
       fp8-kvfp8:
         target_gpus: ["h100"]
@@ -485,5 +486,5 @@ test_models:
           - prompt: "Please describe Shopee in short."
             ground_truth:
               h100: "<think>\nOkay, the user is asking me to describe Shopee in short. Let me start by recalling what I know about Shopee. It's an e-commerce platform"
-              v100: "<think>\nOkay, the user asked me to describe Shopee in short. Let me start by recalling what I know about Shopee. It's an e-commerce platform"
+              v100: "<think>\nOkay, the user is asking me to describe Shopee in short. Let me start by recalling what I know about Shopee. It's an e-commerce platform"
             verification: startswith
