@@ -9,7 +9,7 @@
 set -euxo pipefail
 
 if [ $# != 4 ]; then
-  echo "Usage: $0 model_path deploy_model_format(hf or turbomind, modelopt) precision(fp16, awq-w4a16, awq-w4a8, sq-int8, fp8, nvfp4) device_id"
+  echo "Usage: $0 model_path deploy_model_format(hf or turbomind, modelopt) precision(fp16, awq-w4a16, awq-w4a8, sq-int8, sq-fp8, fp8, nvfp4) device_id"
   exit 1
 fi
 
@@ -93,9 +93,12 @@ function quantize_model(){
      [ $method = auto_awq ] || [ $method = auto_fp8 ]; then
 
        if [ $method = calibrate ] || [ $method = smooth_quant ]; then
-         # https://github.com/InternLM/lmdeploy/blob/main/lmdeploy/lite/apis/calibrate.py#L113-L118
-         # https://github.com/InternLM/lmdeploy/blob/main/lmdeploy/lite/apis/smooth_quant.py#L67-L72
+         # https://github.com/InternLM/lmdeploy/blob/main/lmdeploy/lite/apis/calibrate.py#L199-L209
+         # https://github.com/InternLM/lmdeploy/blob/main/lmdeploy/lite/apis/smooth_quant.py#L17-L29
          extra_args+="--calib-dataset wikitext2 "
+         if [ $precision = sq-fp8 ]; then
+           extra_args+="--quant-dtype fp8 "
+         fi
 
       elif [ $method = auto_awq ]; then
         # https://github.com/InternLM/lmdeploy/blob/main/lmdeploy/lite/apis/auto_awq.py
@@ -228,20 +231,21 @@ elif [ $deploy_model_format = hf ]; then
     echo "LMDeploy supports loading HuggingFace models without model conversion."
     exit 0
 
-  elif [ $precision = awq-w4a16 ] || [ $precision = sq-int8 ] || [ $precision = fp8 ]; then
+  elif [ $precision = awq-w4a16 ] || [ $precision = sq-int8 ] || \
+    [ $precision = sq-fp8 ] || [ $precision = fp8 ]; then
     check_transformers_version ${MODEL_PATH}
 
     if [ $precision = awq-w4a16 ]; then
       quantize_model auto_awq ${MODEL_PATH} ${quant_model_path}
 
-    elif [ $precision = sq-int8 ]; then
+    elif [ $precision = sq-int8 ] || [ $precision = sq-fp8 ]; then
       quantize_model smooth_quant ${MODEL_PATH} ${quant_model_path}
 
     elif [ $precision = fp8 ]; then
       quantize_model auto_fp8 ${MODEL_PATH} ${quant_model_path}
     fi
   else
-    echo "Precision only supports awq-w4a16, sq-int8 and fp8"
+    echo "Precision only supports awq-w4a16, sq-int8, sq-fp8 and fp8"
     exit 1
   fi
 elif [ $deploy_model_format = modelopt ]; then

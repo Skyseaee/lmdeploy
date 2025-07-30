@@ -9,7 +9,7 @@
 set -euxo pipefail
 
 if [ $# != 4 ]; then
-  echo "Usage: $0 model_path precision(fp16, w4a16, fp16-kv-int8, fp16-kv-fp8, fp8-kv-fp16, fp8-kv-fp8) port device_id(0 or 0,1 or 1,3)"
+  echo "Usage: $0 model_path precision(fp16, w4a16, fp16-kv-int8, fp16-kv-fp8, fp8-kv-fp16, fp8-kv-fp8, fp8-sq) port device_id(0 or 0,1 or 1,3)"
   exit
 fi
 
@@ -36,7 +36,8 @@ extra_args=""
 
 if [ $precision = fp16 ] || [ $precision = w4a16 ] || \
    [ $precision = fp16-kv-int8 ] || [ $precision = fp16-kv-fp8 ] || \
-   [ $precision = fp8-kv-fp16 ] || [ $precision = fp8-kv-fp8 ]; then
+   [ $precision = fp8-kv-fp16 ] || [ $precision = fp8-kv-fp8 ] || \
+   [ $precision = fp8-sq ]; then
 
   if [ $precision = w4a16 ]; then
     # AWQ
@@ -60,6 +61,8 @@ if [ $precision = fp16 ] || [ $precision = w4a16 ] || \
     # FP8 + KV-FP8
     extra_args+="--model-format fp8 "
     extra_args+="--quant-policy 16 "
+  elif [ $precision = fp8-sq ]; then
+    extra_args+="--quant-policy 8 "
   fi
 
   lmdeploy serve api_server \
