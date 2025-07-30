@@ -1,5 +1,6 @@
 # Copyright (c) Shopee. All rights reserved.
 import os
+import sys
 from typing import  Dict, Tuple, Union, List
 import importlib.machinery
 import importlib.metadata
@@ -78,8 +79,9 @@ def is_support_optimize_vlm():
     if float(torch.version.cuda) >= 12.0 and torch.cuda.get_device_capability("cuda") >= (7, 5):
         ret = is_tensorrt_greater_or_equal("10.0")
         if not ret:
-            logger.warn("try to prepare environment for tensorrt, about 1~10min")
+            logger.warning("try to prepare environment for tensorrt, about 1~10min")
             os.system(f"pip3 install -r {os.path.dirname(__file__)}/requirements.txt")
+            os.execv(sys.executable, [sys.executable] + sys.argv)
             ret = is_tensorrt_greater_or_equal("10.0")
         return ret
     else:
@@ -92,8 +94,6 @@ def trt_version():
 
 
 def is_flash_attn_2_available(install_dependencies: bool = False) -> bool:
-    import sys
-    import os
     import torch
     if torch.cuda.get_device_capability("cuda") < (8, 0):
         return False
