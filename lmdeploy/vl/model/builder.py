@@ -50,7 +50,8 @@ def enable_flash_attention(config):
 def load_vl_model(model_path: str,
                   backend: str,
                   with_llm: bool = False,
-                  backend_config: Optional[Union[TurbomindEngineConfig, PytorchEngineConfig]] = None):
+                  backend_config: Optional[Union[TurbomindEngineConfig, PytorchEngineConfig]] = None,
+                  default_device="auto"):
     """Load visual model.
 
     Args:
@@ -78,8 +79,8 @@ def load_vl_model(model_path: str,
     else:
         setattr(hf_config, "torch_dtype", torch.float16)
     enable_flash_attention(hf_config)
-
-    kwargs = dict(model_path=model_path, with_llm=with_llm, max_memory=max_memory, hf_config=hf_config, backend=backend)
+    logger.debug(f"model config: {hf_config}, device:{default_device}")
+    kwargs = dict(model_path=model_path, with_llm=with_llm, max_memory=max_memory, hf_config=hf_config, backend=backend, default_device=default_device)
 
     for name, module in VISION_MODELS.module_dict.items():
         try:

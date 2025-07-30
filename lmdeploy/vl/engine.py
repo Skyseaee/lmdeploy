@@ -23,6 +23,15 @@ def _raise_exception_on_finish(task: asyncio.Task) -> None:
     except Exception as e:
         raise e
 
+def _default_device(tp, num_encoders, i):
+    if tp == 1 or num_encoders == 1:
+        logger.info(f"vision_encoder[{i}]: auto")
+        return 'auto'
+    else:
+        step = max(tp // num_encoders, 1)
+        gpu_id = (i*step)% tp
+        logger.info(f"vision_encoder[{i}]: cuda:{gpu_id}")
+        return {'':f"cuda:{gpu_id}"}
 
 class ImageEncoder:
     """Image encoder."""
@@ -34,19 +43,27 @@ class ImageEncoder:
         vision_config: VisionConfig = None,
         backend_config: Optional[Union[TurbomindEngineConfig, PytorchEngineConfig]] = None,
     ):
-        self.model = load_vl_model(model_path, backend, backend_config=backend_config)
         if vision_config is None:
             vision_config = VisionConfig()
         self.vision_config = vision_config
         self.max_batch_size = vision_config.max_batch_size
-        self.executor = ThreadPoolExecutor(max_workers=1)
+        self.executor = ThreadPoolExecutor(max_workers=self.vision_config.instance_num)
+
+        self.model_queue = asyncio.Queue(maxsize=self.vision_config.instance_num)
+        for i in range(self.vision_config.instance_num):
+            model = load_vl_model(model_path, backend, 
+                                backend_config=backend_config,
+                                default_device=_default_device(backend_config.tp, vision_config.instance_num, i))
+            self.model_queue.put_nowait(model)
         torch.cuda.empty_cache()
 
     async def preprocess(self, messages: List[Dict]) -> List[Dict]:
         """Preprocess multimodal data in the messages."""
-        future = asyncio.get_event_loop().run_in_executor(self.executor, self.model.preprocess, messages)
+        model = await self.model_queue.get()
+        future = asyncio.get_event_loop().run_in_executor(self.executor, model.preprocess, messages)
         future.add_done_callback(_raise_exception_on_finish)
         outputs = await future
+        await self.model_queue.put(model)
         return outputs
 
     async def async_infer(self, messages: List[Dict]) -> List[Dict]:
@@ -56,10 +73,12 @@ class ImageEncoder:
             messages (List[Dict]): a list of message, which is the output
             of `preprocess()`
         """
-        future = asyncio.get_event_loop().run_in_executor(self.executor, self.model.forward, messages,
+        model = await self.model_queue.get()
+        future = asyncio.get_event_loop().run_in_executor(self.executor, model.forward, messages,
                                                           self.max_batch_size)
         future.add_done_callback(_raise_exception_on_finish)
         outputs = await future
+        await self.model_queue.put(model)
         return outputs
 
     async def wrap_for_pytorch(self, messages: List[Dict], chat_template, tokenizer, sequence_start) -> List[Dict]:
@@ -79,11 +98,13 @@ class ImageEncoder:
                 ]
             )
         """
-        result = self.model.to_pytorch(messages, chat_template, tokenizer, sequence_start)
+        model = await self.model_queue.get()
+        result = model.to_pytorch(messages, chat_template, tokenizer, sequence_start)
         # clear data
         for i, message in enumerate(messages):
             if isinstance(message['content'], List):
                 messages[i]['preprocess'] = None
+        await self.model_queue.put(model)
         return result
 
     async def wrap_for_turbomind(self, messages: List[Dict], chat_template, tokenizer, sequence_start) -> Dict:
@@ -101,10 +122,12 @@ class ImageEncoder:
                 'input_embedding_ranges': list[torch.Tensor],
                 ...
         """
-        result = self.model.to_turbomind(messages, chat_template, tokenizer, sequence_start)
+        model = await self.model_queue.get()
+        result = model.to_turbomind(messages, chat_template, tokenizer, sequence_start)
         # clear data
         for i, message in enumerate(messages):
             if isinstance(message['content'], List):
                 messages[i]['preprocess'] = None
                 messages[i]['forward'] = None
+        await self.model_queue.put(model)
         return result

@@ -3,6 +3,7 @@
 Support Qwen2.5-VL-7B-Instruct model using turbomind
 Author: wenlong.cao@shopee.com
 Date: 2025-02-24 17:00:12
+Update: 2025-07-25 10:00:00 refactor for v0.9.1 and test MultiVisionEncoder
 """
 import sys
 import os
@@ -37,7 +38,7 @@ def check_qwen_2d5_vl_deps_install():
 
 from lmdeploy.vl.model.onepiece.utils import is_support_optimize_vlm, trt_version
 
-VLM_ENABLE_TRT = os.environ.get("ONELLM_VLM_ENABLE_TRT", False) and is_support_optimize_vlm()
+VLM_ENABLE_TRT = os.getenv("ONELLM_VLM_ENABLE_TRT", False) and is_support_optimize_vlm()
 if VLM_ENABLE_TRT:
     from lmdeploy.vl.model.onepiece.workflow import build_engine
 
@@ -47,7 +48,7 @@ class _ImageEncoderWrapper(torch.nn.Module):
     """
     def __init__(self, model):
         super().__init__()
-        self.model = model.eval().cuda()
+        self.model = model
         self.device = model.device
         self.dtype = model.dtype
 
@@ -58,7 +59,7 @@ class _ImageEncoderWrapper(torch.nn.Module):
         """
         config = processor.image_processor
         IMAGE_FACTOR = 28
-        input_shapes = os.environ.get("ONELLM_IMAGE_SIZE", "512x512")
+        input_shapes = os.environ.get("ONELLM_IMAGE_SIZE", "448x448")
         rotary_pos_emb_dim = self.model.config.hidden_size // self.model.config.num_heads // 2
         try:
             width, height = int(input_shapes.split("x")[0]), int(input_shapes.split("x")[1])
@@ -85,19 +86,20 @@ class _ImageEncoderWrapper(torch.nn.Module):
             messages = [dict(content=content)]
             image_inputs, _ = process_vision_info(messages)
             image_inputs = processor.image_processor(images=image_inputs, videos=None, return_tensors='pt')
-            pixel_values = image_inputs['pixel_values'].to(dtype=torch.float16, device='cuda')
-            image_grid = image_inputs['image_grid_thw'].to(dtype=torch.int32, device='cuda')
+            pixel_values = image_inputs['pixel_values'].to(dtype=torch.float16, device=self.device)
+            image_grid = image_inputs['image_grid_thw'].to(dtype=torch.int32, device=self.device)
             hidden_states, rotary_pos_emb, attention_mask, cu_attention_mask, window_index = self.prepare_input(pixel_values, image_grid, attn_implement)
             L, H = hidden_states.shape
-            logger.info(f"✨OneLLM: input shape {width}x{height}->{resized_width}x{resized_height}->{L}x{H}")
-            print(f"🔔H={H}, L={L}")
-            print(f"🔔grid_thw: {image_grid}")
-            print(f"🔔pixel_values: {hidden_states.shape}, {hidden_states.dtype}")
-            print(f"🔔rotary_pos_emb: {rotary_pos_emb.shape}, {rotary_pos_emb.dtype}")
-            print(f"🔔attention_mask: {attention_mask.shape}, {attention_mask.dtype}")
-            print(f"🔔cu_attention_mask: {cu_attention_mask.shape}, {cu_attention_mask.dtype}")
+            logger.info(f"**************************************************************************************")
+            logger.info(f"✨ OneLLM: input shape {width}x{height}->{resized_width}x{resized_height}->{L}x{H}")
+            logger.info(f"✨ H={H}, L={L}, grid_thw: {image_grid}")
+            logger.info(f"✨ pixel_values: {hidden_states.shape}, {hidden_states.dtype}")
+            logger.info(f"✨ rotary_pos_emb: {rotary_pos_emb.shape}, {rotary_pos_emb.dtype}")
+            logger.info(f"✨ attention_mask: {attention_mask.shape}, {attention_mask.dtype}")
+            logger.info(f"✨ cu_attention_mask: {cu_attention_mask.shape}, {cu_attention_mask.dtype}")
+            logger.info(f"**************************************************************************************")
         except TypeError:
-            logger.warning(f"✨OneLLM: invalid input shape {input_shapes}")
+            logger.warning(f"✨ OneLLM: invalid input shape {input_shapes}, explicit export ONELLM_IMAGE_SIZE=wxh, e.g. export ONELLM_IMAGE_SIZE=448x448")
             width, height = -1, -1
         model_name = os.path.basename(model_path.strip().rstrip('/'))
         model_name = os.path.join(os.path.dirname(__file__), 
@@ -134,7 +136,7 @@ class _ImageEncoderWrapper(torch.nn.Module):
         window_index, cu_window_seqlens = self.model.get_window_index(grid_thw)
         cu_window_seqlens = torch.tensor(
             cu_window_seqlens,
-            device=torch.device("cuda"),
+            device=self.device,
             dtype=grid_thw.dtype,
         )
         cu_window_seqlens = torch.unique_consecutive(cu_window_seqlens)
@@ -168,13 +170,13 @@ class _ImageEncoderWrapper(torch.nn.Module):
         elif attn_implement == "eager":
             ##  for eager
             attention_mask = torch.full(
-                    [1, seq_len, seq_len], torch.finfo(torch.float32).min, device=torch.device('cuda'), dtype=torch.float32
+                    [1, seq_len, seq_len], torch.finfo(torch.float32).min, device=self.device, dtype=torch.float32
                 )
             for i in range(1, len(cu_seqlens)):
                 attention_mask[..., cu_seqlens[i - 1] : cu_seqlens[i], cu_seqlens[i - 1] : cu_seqlens[i]] = 0
             
             window_attention_mask = torch.full(
-                    [1, seq_len, seq_len], torch.finfo(torch.float32).min, device=torch.device('cuda'), dtype=torch.float32
+                    [1, seq_len, seq_len], torch.finfo(torch.float32).min, device=self.device, dtype=torch.float32
                 )
             for i in range(1, len(cu_window_seqlens)):
                 window_attention_mask[..., cu_window_seqlens[i - 1] : cu_window_seqlens[i], cu_window_seqlens[i - 1] : cu_window_seqlens[i]] = 0
@@ -188,7 +190,6 @@ class _ImageEncoderWrapper(torch.nn.Module):
                 window_attention_mask:torch.Tensor
                 ) -> torch.Tensor:
         #[7,15,23,31]
-        # print("🌟🌟 Blocks", len(self.model.blocks))
         if self.model.fullatt_block_indexes != [7,15,23,31]:
             logger.error("only support fullatt_block_indexes = [7,15,23,31]")
             return None
@@ -227,18 +228,23 @@ class Qwen2d5VLModel(VisonModel):
 
     def build_model(self):
         check_qwen_2d5_vl_deps_install()
+        if self.backend == "pytorch":
+            from transformers import Qwen2_5_VLForConditionalGeneration
+            self.vl_model = Qwen2_5_VLForConditionalGeneration.from_pretrained(self.model_path, device_map='cpu')
+            return
 
         from accelerate import init_empty_weights, load_checkpoint_and_dispatch
         if self.hf_config.torch_dtype != self.hf_config.vision_config.torch_dtype:
-            logger.warning(f"🔔Qwen2_5_VLForConditionalGeneration: {self.hf_config.torch_dtype},"+ 
+            logger.warning(f"🔔 Qwen2_5_VLForConditionalGeneration: {self.hf_config.torch_dtype},"+ 
                            f"vision_model: {self.hf_config.vision_config.torch_dtype}")
             if self.hf_config.vision_config.torch_dtype == torch.float32:
                 self.hf_config.vision_config.torch_dtype = device_default_half_type()
             else:
                 self.hf_config.torch_dtype = device_default_half_type()
         
+        #from transformers import Qwen2_5_VLForConditionalGeneration
+        from lmdeploy.vl.model.onepiece.qwen2_5_vl import Qwen2_5_VLForConditionalGeneration
         if self.hf_config.tie_word_embeddings and self.with_llm:
-            from lmdeploy.vl.model.onepiece.qwen2_5_vl import Qwen2_5_VLForConditionalGeneration
             model = Qwen2_5_VLForConditionalGeneration._from_config(self.hf_config, 
                                                                     torch_dtype=self.hf_config.torch_dtype, 
                                                                     attn_implementation=self.hf_config._attn_implementation) 
@@ -249,13 +255,9 @@ class Qwen2d5VLModel(VisonModel):
                 config.quantization_config = {}  # disable vision part quantization
                 # disable accelerate check_tied_parameters_in_config
                 # for Qwen2.5-VL-2B-Instruct
-                config.tie_word_embeddings = False
+                setattr(config, 'tie_word_embeddings', False)
                 if VLM_ENABLE_TRT:
-                    if int(os.environ.get("ONELLM_TRT_VISION_MAX_BATCH_SIZE", 1)) <= 2:
-                        config._attn_implementation = "eager"
-                    else:
-                        config._attn_implementation = "sdpa"
-                from lmdeploy.vl.model.onepiece.qwen2_5_vl import Qwen2_5_VLForConditionalGeneration
+                    config._attn_implementation = "sdpa"
                 model = Qwen2_5_VLForConditionalGeneration._from_config(config, 
                                                                         torch_dtype=config.torch_dtype, 
                                                                         attn_implementation=config._attn_implementation) 
@@ -271,28 +273,28 @@ class Qwen2d5VLModel(VisonModel):
                     checkpoint=self.model_path,
                     device_map=self.default_device if not self.with_llm else {'': 'cpu'},
                     max_memory=self.max_memory,
-                    no_split_module_classes=['Qwen2_5_VisionPatchEmbed', 'Qwen2_5_VLVisionBlock', 'Qwen2_5_VLPatchMerger'],
-                    dtype=torch.half)
+                    no_split_module_classes=[],
+                    dtype=self.hf_config.torch_dtype)
 
         self.model = model.eval()
-        logger.info(f"🔔final model dtype: {self.model.dtype}")
+        logger.info(f"🔔 model_dtype={self.model.dtype}, attn_implementation={config._attn_implementation}")
 
         if VLM_ENABLE_TRT:
-            logger.debug("✨Qwen2.5VL enable_image_trt")
+            logger.info("✨ Qwen2.5VL enable_image_trt, prepare inference engine")
             self.vision_batch_size = int(os.environ.get("ONELLM_TRT_VISION_MAX_BATCH_SIZE", 1))
             vision_model = _ImageEncoderWrapper(self.model.visual)
             cfg = vision_model.get_cfg(self.processor, 
                                        max_batch_size=self.vision_batch_size, 
                                        attn_implement=config._attn_implementation,
                                        model_path=self.model_path)
-            logger.debug(f"✨building engine Config={cfg}")
-            self.model.vision_model_trt = build_engine(
-                cfg=cfg,
-                model=vision_model,
-                device=torch.device("cuda"))
+            logger.debug(f"✨ building engine Config={cfg}")
+            self.model.vision_model_trt = build_engine(cfg=cfg,
+                                                    model=vision_model,
+                                                    device=vision_model.device)
             del self.model.visual
             self.model.visual = vision_model
             os.system(f"rm -rf {cfg['onnx_path']}")
+            logger.info("✨ Qwen2.5VL enable_image_trt, finished prepare engine")
 
     def preprocess(self, messages: List[Dict]) -> List[Dict]:
         """Refer to `super().preprocess()` for spec."""
@@ -300,27 +302,40 @@ class Qwen2d5VLModel(VisonModel):
 
         images = self.collect_images(messages)
         optional_keys = {'resized_height', 'resized_width', 'min_pixels', 'max_pixels'}
-        content = []
-        for image, params in images:
-            image = image.convert('RGB')
-            item = dict(type='image', image=image)
-            item.update({key: params[key] for key in params.keys() if key in optional_keys})
-            content.append(item)
-        
-        image_inputs, _ = process_vision_info([dict(content=content)])
-        result = self.processor.image_processor(images=image_inputs, videos=None, return_tensors='pt')
-        merge_length = self.processor.image_processor.merge_size**2
-        image_tokens = result['image_grid_thw'].prod(dim=1) // merge_length
-        result.update(dict(image_size=image.size, image_tokens=image_tokens, image_token_id=self.image_token_id))
-        messages.append(dict(role='preprocess', content=result))
+        if self.backend == "pytorch":
+            outputs = []
+            for image, params in images:
+                image = image.convert('RGB')
+                item = dict(type='image', image=image)
+                item.update({key: params[key] for key in params.keys() if key in optional_keys})
+                image_inputs, _ = process_vision_info([dict(content=[item])])
+                result = self.processor.image_processor(images=image_inputs, videos=None, return_tensors='pt')
+                merge_length = self.processor.image_processor.merge_size**2
+                image_tokens = result['image_grid_thw'].prod(dim=1) // merge_length
+                result.update(dict(image_size=image.size, image_tokens=image_tokens, image_token_id=self.image_token_id))
+                outputs.append(result)
+            messages.append(dict(role='preprocess', content=outputs))
+        else:
+            content = []
+            for image, params in images:
+                image = image.convert('RGB')
+                item = dict(type='image', image=image)
+                item.update({key: params[key] for key in params.keys() if key in optional_keys})
+                content.append(item)
+            image_inputs, _ = process_vision_info([dict(content=content)])
+            result = self.processor.image_processor(images=image_inputs, videos=None, return_tensors='pt')
+            merge_length = self.processor.image_processor.merge_size**2
+            image_tokens = result['image_grid_thw'].prod(dim=1) // merge_length
+            result.update(dict(image_size=image.size, image_tokens=image_tokens, image_token_id=self.image_token_id))
+            messages.append(dict(role='preprocess', content=result))
         return messages
 
     @torch.no_grad()
     def forward(self, messages: List[Dict], max_batch_size: int = 1) -> List[Dict]:
         image_inputs = [x['content'] for x in messages if x['role'] == 'preprocess'][0]
         outputs = []
-        pixel_values = image_inputs["pixel_values"]
-        image_grid_thw = image_inputs["image_grid_thw"]
+        pixel_values = image_inputs["pixel_values"].to(self.model.visual.device)
+        image_grid_thw = image_inputs["image_grid_thw"].to(self.model.visual.device)
         image_tokens = image_inputs["image_tokens"]
         if VLM_ENABLE_TRT:
             new_hidden_states, rotary_pos_emb, attention_mask, cu_attention_mask, window_index = \
@@ -337,8 +352,8 @@ class Qwen2d5VLModel(VisonModel):
             image_embeds = image_embeds.to(dtype=torch.float)
         else:
             image_embeds = self.model.visual(pixel_values, grid_thw=image_grid_thw).to(dtype=torch.float)
-            logger.info(f"vision_encoder: pixel_values: {list(pixel_values.shape)}, image_embeds:{list(image_embeds.shape)}")
-            image_embeds = image_embeds.split(image_tokens.tolist())
+        logger.info(f"vision_encoder: pixel_values: {list(pixel_values.shape)}, image_embeds:{list(image_embeds.shape)}")
+        image_embeds = image_embeds.split(image_tokens.tolist())
         for i, embeddings in enumerate(image_embeds):
             outputs.append(
                 dict(embeddings=embeddings,
@@ -462,7 +477,7 @@ class Qwen2d5VLModel(VisonModel):
     def to_turbomind(self, messages, chat_template, tokenizer, sequence_start):
         prompt, IMAGE_TOKEN = self.proc_messages(messages, chat_template, sequence_start)
         return self.to_turbomind_aux(messages, prompt, IMAGE_TOKEN, tokenizer, sequence_start)
-    
+
     def to_pytorch(self, messages, chat_template, tokenizer, sequence_start):
         """Return to the information needed by pytorch engine."""
         prompt, IMAGE_TOKEN = self.proc_messages(messages, chat_template, sequence_start)
