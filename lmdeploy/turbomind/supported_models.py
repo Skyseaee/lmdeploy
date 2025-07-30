@@ -28,6 +28,9 @@ SUPPORTED_ARCHS = dict(
     # Qwen2
     Qwen2ForCausalLM='qwen2',
     Qwen2MoeForCausalLM='qwen2-moe',
+    # Qwen3
+    Qwen3ForCausalLM='qwen3',
+    Qwen3MoeForCausalLM='qwen3-moe',
     # Qwen2-VL-7B-Instruct
     Qwen2VLForConditionalGeneration='qwen2',
     # Qwen2.5-VL-7B-Instruct
@@ -60,9 +63,6 @@ SUPPORTED_ARCHS = dict(
     # mixtral
     MixtralForCausalLM='mixtral',
     MolmoForCausalLM='molmo',
-    # Qwen3
-    Qwen3ForCausalLM='qwen3',
-    Qwen3MoeForCausalLM='qwen3-moe',
 )
 
 

@@ -45,8 +45,6 @@ _SUPPORTED_ARCHS = dict(
     Qwen2VLForConditionalGeneration=True,
     # Qwen2.5-VL-7B-Instruct
     Qwen2_5_VLForConditionalGeneration=True,
-    # Dbrx 132B
-    DbrxForCausalLM=True,
     # cogvlm-chat
     CogVLMForCausalLM=True,
     # llava

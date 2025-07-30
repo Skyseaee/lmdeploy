@@ -20,7 +20,6 @@ LAYER_TYPE_MAP = {
     'Qwen2ForCausalLM': 'Qwen2DecoderLayer',
     'Qwen3ForCausalLM': 'Qwen3DecoderLayer',
     'Qwen3MoeForCausalLM': 'Qwen3MoeDecoderLayer',
-    'Qwen2_5_VLForConditionalGeneration':'Qwen2_5_VLDecoderLayer',
     'BaiChuanForCausalLM': 'DecoderLayer',  # Baichuan 7B
     'BaichuanForCausalLM': 'DecoderLayer',  # Baichuan2 7B
     'LlamaForCausalLM': 'LlamaDecoderLayer',
@@ -31,6 +30,7 @@ LAYER_TYPE_MAP = {
     'ChatGLMForConditionalGeneration': 'GLMBlock',
     'MixtralForCausalLM': 'MixtralDecoderLayer',
     'Qwen2VLForConditionalGeneration': 'Qwen2VLDecoderLayer',
+    'Qwen2_5_VLForConditionalGeneration': 'Qwen2_5_VLDecoderLayer',
     'MistralForCausalLM': 'MistralDecoderLayer',
     'CompassForCausalLM': 'CompassDecoderLayer',
     'CompassMoeForCausalLM': 'CompassMoeDecoderLayer',
@@ -44,7 +44,6 @@ NORM_TYPE_MAP = {
     'Qwen2ForCausalLM': 'Qwen2RMSNorm',
     'Qwen3ForCausalLM': 'Qwen3RMSNorm',
     'Qwen3MoeForCausalLM': 'Qwen3MoeRMSNorm',
-    'Qwen2_5_VLForConditionalGeneration':'Qwen2RMSNorm',
     'BaiChuanForCausalLM': 'RMSNorm',  # Baichuan 7B
     'BaichuanForCausalLM': 'RMSNorm',  # Baichuan2 7B
     'LlamaForCausalLM': 'LlamaRMSNorm',
@@ -55,6 +54,7 @@ NORM_TYPE_MAP = {
     'ChatGLMForConditionalGeneration': 'RMSNorm',
     'MixtralForCausalLM': 'MixtralRMSNorm',
     'Qwen2VLForConditionalGeneration': 'Qwen2RMSNorm',
+    'Qwen2_5_VLForConditionalGeneration': 'Qwen2RMSNorm',
     'MistralForCausalLM': 'MistralRMSNorm',
     'CompassForCausalLM': 'CompassRMSNorm',
     'CompassMoeForCausalLM': 'CompassMoeRMSNorm',
@@ -68,7 +68,6 @@ HEAD_NAME_MAP = {
     'Qwen2ForCausalLM': 'lm_head',
     'Qwen3ForCausalLM': 'lm_head',
     'Qwen3MoeForCausalLM': 'lm_head',
-    'Qwen2_5_VLForConditionalGeneration': 'lm_head',
     'BaiChuanForCausalLM': 'lm_head',  # Baichuan 7B
     'BaichuanForCausalLM': 'lm_head',  # Baichuan2 7B
     'LlamaForCausalLM': 'lm_head',
@@ -79,6 +78,7 @@ HEAD_NAME_MAP = {
     'ChatGLMForConditionalGeneration': 'output_layer',
     'MixtralForCausalLM': 'lm_head',
     'Qwen2VLForConditionalGeneration': 'lm_head',
+    'Qwen2_5_VLForConditionalGeneration': 'lm_head',
     'MistralForCausalLM': 'lm_head',
     'CompassForCausalLM': 'lm_head',
     'CompassMoeForCausalLM': 'lm_head',

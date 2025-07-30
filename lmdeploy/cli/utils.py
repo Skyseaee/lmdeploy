@@ -150,6 +150,7 @@ class ArgumentHelper:
     @staticmethod
     def tp(parser):
         """Add argument tp to parser."""
+
         return parser.add_argument('--tp',
                                    type=int,
                                    default=1,
@@ -579,10 +580,8 @@ class ArgumentHelper:
 
     @staticmethod
     def vision_max_batch_size(parser):
-        return parser.add_argument('--vision-max-batch-size',
-                                   type=int,
-                                   default=1,
-                                   help='the vision model batch size')
+        return parser.add_argument('--vision-max-batch-size', type=int, default=1, help='the vision model batch size')
+
     @staticmethod
     def vision_instance_num(parser):
         return parser.add_argument('--vision-instance-num',

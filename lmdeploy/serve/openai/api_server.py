@@ -1084,6 +1084,7 @@ async def chat_interactive_v1(request: GenerateRequest, raw_request: Request = N
         ignore_eos=request.data.get('ignore_eos', False),
         stop_words=request.data.get('stop', None),
         skip_special_tokens=request.data.get('skip_special_tokens', True),
+        spaces_between_special_tokens=request.data.get('spaces_between_special_tokens', True),
         min_new_tokens=request.data.get('min_new_tokens', None),
         min_p=request.data.get('min_p', 0),
         random_seed=request.data.get('random_seed', 42)
@@ -1252,28 +1253,6 @@ def set_parsers(reasoning_parser: Optional[str] = None, tool_parser: Optional[st
             )
 
 
-def set_parsers(reasoning_parser: Optional[str] = None, tool_parser: Optional[str] = None):
-    """Set tool parser and reasoning parsers."""
-    # set reasoning parser
-    if reasoning_parser is not None:
-        if reasoning_parser in ReasoningParserManager.module_dict:
-            tokenizer = VariableInterface.async_engine.tokenizer
-            VariableInterface.reasoning_parser = ReasoningParserManager.get(reasoning_parser)(tokenizer)
-        else:
-            raise ValueError(
-                f'The reasoning parser {reasoning_parser} is not in the parser list: {ReasoningParserManager.module_dict.keys()}'  # noqa
-            )
-    # set tool parsers
-    if tool_parser is not None:
-        if tool_parser in ToolParserManager.module_dict:
-            tokenizer = VariableInterface.async_engine.tokenizer
-            VariableInterface.tool_parser = ToolParserManager.get(tool_parser)(tokenizer)
-        else:
-            raise ValueError(
-                f'The reasoning parser {tool_parser} is not in the parser list: {ToolParserManager.module_dict.keys()}'  # noqa
-            )
-
-
 def serve(model_path: str,
           model_name: Optional[str] = None,
           backend: Literal['turbomind', 'pytorch'] = 'turbomind',
@@ -1401,14 +1380,13 @@ def serve(model_path: str,
         v = kwargs.pop("chat_template")
         chat_template_config = ChatTemplateConfig.from_json(v)
             
-    VariableInterface.async_engine = pipeline_class(
-        model_path=model_path,
-        model_name=model_name,
-        backend=backend,
-        backend_config=backend_config,
-        chat_template_config=chat_template_config,
-        max_log_len=max_log_len,
-        **kwargs)
+    VariableInterface.async_engine = pipeline_class(model_path=model_path,
+                                                    model_name=model_name,
+                                                    backend=backend,
+                                                    backend_config=backend_config,
+                                                    chat_template_config=chat_template_config,
+                                                    max_log_len=max_log_len,
+                                                    **kwargs)
     # set reasoning parser and tool parser
     set_parsers(reasoning_parser, tool_call_parser)
 

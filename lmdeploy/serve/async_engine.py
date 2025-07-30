@@ -20,7 +20,7 @@ import tqdm
 from lmdeploy import Tokenizer
 from lmdeploy.archs import get_model_arch
 from lmdeploy.logger import RequestLogger
-from lmdeploy.messages import (GenerationConfig, PytorchEngineConfig, Response, ResponseType, TurbomindEngineConfig)
+from lmdeploy.messages import GenerationConfig, PytorchEngineConfig, Response, ResponseType, TurbomindEngineConfig
 from lmdeploy.model import MODELS, BaseChatTemplate, ChatTemplateConfig, best_match_model
 from lmdeploy.pytorch.disagg.request import DistServeConnectionRequest, DistServeInitRequest
 from lmdeploy.serve.utils import LogitsMixin
@@ -798,14 +798,14 @@ class AsyncEngine(LogitsMixin):
             response = ''
             finish_reason = None
             async with self.safe_run(inst,
-                                    session_id=session_id,
-                                    **prompt_input,
-                                    gen_config=gen_config,
-                                    adapter_name=adapter_name,
-                                    stream_output=stream_response,
-                                    sequence_start=sequence_start,
-                                    sequence_end=sequence_end,
-                                    step=history_len) as gen:
+                                     session_id=session_id,
+                                     **prompt_input,
+                                     gen_config=gen_config,
+                                     adapter_name=adapter_name,
+                                     stream_output=stream_response,
+                                     sequence_start=sequence_start,
+                                     sequence_end=sequence_end,
+                                     step=history_len) as gen:
                 prev_len = 0
                 hit_stop_token = 0
                 async for outputs in gen:
@@ -845,13 +845,13 @@ class AsyncEngine(LogitsMixin):
                     if gen_config.stop_words is not None:
                         response, hit_stop_word = self._check_stop_strings(response, gen_config.stop_words)
                     out = GenOut(response,
-                                history_len,
-                                input_len,
-                                gen_len,
-                                finish_reason,
-                                token_ids=res,
-                                cache_block_ids=outputs.cache_block_ids,
-                                cost_time=(time.time() - start_time) * 1000)
+                                 history_len,
+                                 input_len,
+                                 gen_len,
+                                 finish_reason,
+                                 token_ids=res,
+                                 cache_block_ids=outputs.cache_block_ids,
+                                 cost_time=(time.time() - start_time) * 1000)
 
                     if outputs.logprobs is not None:
                         log_offset = ids_offset - start_ids_offset
@@ -886,23 +886,23 @@ class AsyncEngine(LogitsMixin):
                     #             f'"{finish_reason}", input_tokens '
                     #             f'{len(input_ids)}, outupt_tokens {gen_len}')
                     yield GenOut(response,
-                                self.id2step[session_id],
-                                len(input_ids),
-                                gen_len,
-                                finish_reason,
-                                token_ids=[],
-                                cache_block_ids=outputs.cache_block_ids,
-                                cost_time=cost_time)
+                                 self.id2step[session_id],
+                                 len(input_ids),
+                                 gen_len,
+                                 finish_reason,
+                                 token_ids=[],
+                                 cache_block_ids=outputs.cache_block_ids,
+                                 cost_time=cost_time)
                 else:
                     logger.error(f'session {session_id} finished, '
-                                'reason "error"')
+                                 'reason "error"')
                     yield GenOut(response='internal error happened',
-                                history_token_len=self.id2step[session_id],
-                                input_token_len=len(input_ids),
-                                generate_token_len=0,
-                                finish_reason='error',
-                                token_ids=[],
-                                cost_time=cost_time)
+                                 history_token_len=self.id2step[session_id],
+                                 input_token_len=len(input_ids),
+                                 generate_token_len=0,
+                                 finish_reason='error',
+                                 token_ids=[],
+                                 cost_time=cost_time)
 
             # update step
             if sequence_end:

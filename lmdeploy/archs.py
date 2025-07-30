@@ -116,14 +116,12 @@ def check_vl_llm(config: dict) -> bool:
 
     arch = config['architectures'][0]
     supported_archs = set([
-        'LlavaLlamaForCausalLM', 'LlavaMistralForCausalLM', 'LlavaQwenForCausalLM',
-        'CogVLMForCausalLM', 'InternLMXComposer2ForCausalLM',
-        'InternVLChatModel', 'MiniGeminiLlamaForCausalLM',
-        'MGMLlamaForCausalLM', 'MiniCPMV', 'LlavaForConditionalGeneration',
-        'LlavaNextForConditionalGeneration', 'Phi3VForCausalLM',
-        'Qwen2VLForConditionalGeneration', 'MllamaForConditionalGeneration',
-        'MolmoForCausalLM', "CompassLLVM", 'Qwen2_5_VLForConditionalGeneration', 
-        'Gemma3ForConditionalGeneration', 'Llama4ForConditionalGeneration', 'InternVLForConditionalGeneration'
+        'LlavaLlamaForCausalLM', 'LlavaMistralForCausalLM', 'CogVLMForCausalLM', 'InternLMXComposer2ForCausalLM',
+        'InternVLChatModel', 'MiniCPMV', 'LlavaForConditionalGeneration', 'LlavaNextForConditionalGeneration',
+        'Phi3VForCausalLM', 'Qwen2VLForConditionalGeneration', 'Qwen2_5_VLForConditionalGeneration',
+        'MllamaForConditionalGeneration', 'MolmoForCausalLM', 'Gemma3ForConditionalGeneration',
+        'Llama4ForConditionalGeneration', 'InternVLForConditionalGeneration', 'LlavaQwenForCausalLM',
+        'MiniGeminiLlamaForCausalLM', 'MGMLlamaForCausalLM', "CompassLLVM"
     ])
     if arch == 'QWenLMHeadModel' and 'visual' in config:
         return True

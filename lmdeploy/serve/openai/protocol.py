@@ -413,7 +413,6 @@ class GenerateResponse(BaseModel):
     history_tokens: Optional[int] = None
     cost_time: Optional[float] = None
     finish_reason: Optional[Literal['stop', 'length', 'tool_calls', 'error', 'end', 'unknown']] = None
-    finished: Optional[bool] = None
 
 
 class UpdateParamsRequest(BaseModel):

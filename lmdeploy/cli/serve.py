@@ -166,8 +166,7 @@ class SubCliServe:
         prefix_caching_act = ArgumentHelper.enable_prefix_caching(pt_group)
         expert_pruning_act = ArgumentHelper.enable_expert_pruning(pt_group)
         keep_expert_num = ArgumentHelper.keep_expert_num(pt_group)
-        max_prefill_token_num_act = ArgumentHelper.max_prefill_token_num(
-            pt_group)
+        max_prefill_token_num_act = ArgumentHelper.max_prefill_token_num(pt_group)
         quant_policy = ArgumentHelper.quant_policy(pt_group)
         model_format = ArgumentHelper.model_format(pt_group)
         ArgumentHelper.dp(pt_group)
@@ -348,22 +347,22 @@ class SubCliServe:
                                                  model_format=args.model_format)
         else:
             from lmdeploy.messages import TurbomindEngineConfig
-            backend_config = TurbomindEngineConfig(
-                dtype=args.dtype,
-                tp=args.tp,
-                enable_expert_parallel=args.enable_expert_parallel,
-                enable_attention_dp=args.enable_attention_dp,
-                max_batch_size=max_batch_size,
-                session_len=args.session_len,
-                model_format=args.model_format,
-                quant_policy=args.quant_policy,
-                rope_scaling_factor=args.rope_scaling_factor,
-                cache_max_entry_count=args.cache_max_entry_count,
-                cache_block_seq_len=args.cache_block_seq_len,
-                enable_prefix_caching=args.enable_prefix_caching,
-                enable_expert_pruning=args.enable_expert_pruning,
-                keep_expert_num=args.keep_expert_num,
-                max_prefill_token_num=args.max_prefill_token_num)
+            backend_config = TurbomindEngineConfig(dtype=args.dtype,
+                                                   tp=args.tp,
+                                                   enable_expert_parallel=args.enable_expert_parallel,
+                                                   enable_attention_dp=args.enable_attention_dp,
+                                                   max_batch_size=max_batch_size,
+                                                   session_len=args.session_len,
+                                                   model_format=args.model_format,
+                                                   quant_policy=args.quant_policy,
+                                                   rope_scaling_factor=args.rope_scaling_factor,
+                                                   cache_max_entry_count=args.cache_max_entry_count,
+                                                   cache_block_seq_len=args.cache_block_seq_len,
+                                                   enable_prefix_caching=args.enable_prefix_caching,
+                                                   enable_expert_pruning=args.enable_expert_pruning,
+                                                   keep_expert_num=args.keep_expert_num,
+                                                   max_prefill_token_num=args.max_prefill_token_num,
+                                                   communicator=args.communicator)
         chat_template_config = get_chat_template(args.chat_template)
 
         from lmdeploy.messages import VisionConfig
@@ -372,27 +371,27 @@ class SubCliServe:
         if args.dp == 1:
             from lmdeploy.serve.openai.api_server import serve as run_api_server
             run_api_server(args.model_path,
-                        model_name=args.model_name,
-                        backend=backend,
-                        backend_config=backend_config,
-                        chat_template_config=chat_template_config,
-                        vision_config=vision_config,
-                        server_name=args.server_name,
-                        server_port=args.server_port,
-                        allow_origins=args.allow_origins,
-                        allow_credentials=args.allow_credentials,
-                        allow_methods=args.allow_methods,
-                        allow_headers=args.allow_headers,
-                        allow_terminate_by_client=args.allow_terminate_by_client,
-                        log_level=args.log_level.upper(),
-                        api_keys=args.api_keys,
-                        ssl=args.ssl,
-                        proxy_url=args.proxy_url,
-                        max_log_len=args.max_log_len,
-                        disable_fastapi_docs=args.disable_fastapi_docs,
-                        max_concurrent_requests=args.max_concurrent_requests,
-                        reasoning_parser=args.reasoning_parser,
-                        tool_call_parser=args.tool_call_parser)
+                           model_name=args.model_name,
+                           backend=backend,
+                           backend_config=backend_config,
+                           chat_template_config=chat_template_config,
+                           vision_config=vision_config,
+                           server_name=args.server_name,
+                           server_port=args.server_port,
+                           allow_origins=args.allow_origins,
+                           allow_credentials=args.allow_credentials,
+                           allow_methods=args.allow_methods,
+                           allow_headers=args.allow_headers,
+                           allow_terminate_by_client=args.allow_terminate_by_client,
+                           log_level=args.log_level.upper(),
+                           api_keys=args.api_keys,
+                           ssl=args.ssl,
+                           proxy_url=args.proxy_url,
+                           max_log_len=args.max_log_len,
+                           disable_fastapi_docs=args.disable_fastapi_docs,
+                           max_concurrent_requests=args.max_concurrent_requests,
+                           reasoning_parser=args.reasoning_parser,
+                           tool_call_parser=args.tool_call_parser)
         else:
             from lmdeploy.serve.openai.launch_server import launch_server
 
@@ -420,7 +419,6 @@ class SubCliServe:
                           max_concurrent_requests=args.max_concurrent_requests,
                           reasoning_parser=args.reasoning_parser,
                           tool_call_parser=args.tool_call_parser)
-
 
     @staticmethod
     def api_client(args):
