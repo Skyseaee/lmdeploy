@@ -27,16 +27,31 @@ from .molmo import MolmoVisionModel  # noqa F401
 from .phi3_vision import Phi3VisionModel  # noqa F401
 from .qwen import QwenVisionModel  # noqa F401
 from .qwen2 import Qwen2VLModel  # noqa F401
+from .qwen2_5 import Qwen2d5VLModel  # noqa F401
 from .xcomposer2 import Xcomposer2VisionModel  # noqa F401
 from .yi import YiVisionModel  # noqa F401
+from .compassllvm import CompassVisionModel  # noqa F401
+from .compassllvm1_6 import CompassVisionModel1d6, CompassSMoEVisionModel  # noqa F401
 
 logger = get_logger('lmdeploy')
 
 
+def enable_flash_attention(config):
+    if not os.environ.get("ONELLM_ENABLE_FLASH_ATTN", False):
+        return
+
+    if hasattr(config, "_attn_implementation"):
+        attn_impl_ = config._attn_implementation
+        from lmdeploy.vl.model.onepiece.utils import is_flash_attn_2_available
+        if is_flash_attn_2_available(install_dependencies=True):
+            attn_impl_ = "flash_attention_2"
+        setattr(config, "_attn_implementation", attn_impl_)
+
 def load_vl_model(model_path: str,
                   backend: str,
                   with_llm: bool = False,
-                  backend_config: Optional[Union[TurbomindEngineConfig, PytorchEngineConfig]] = None):
+                  backend_config: Optional[Union[TurbomindEngineConfig, PytorchEngineConfig]] = None,
+                  default_device="auto"):
     """Load visual model.
 
     Args:
@@ -57,7 +72,15 @@ def load_vl_model(model_path: str,
         max_memory = {i: torch.cuda.mem_get_info(i)[0] for i in range(tp)}
 
     _, hf_config = get_model_arch(model_path)
-    kwargs = dict(model_path=model_path, with_llm=with_llm, max_memory=max_memory, hf_config=hf_config, backend=backend)
+
+    # set auto/bfloat16/float16
+    if hasattr(backend_config, "dtype") and backend_config.dtype == 'bfloat16':
+        setattr(hf_config, "torch_dtype", torch.bfloat16)
+    else:
+        setattr(hf_config, "torch_dtype", torch.float16)
+    enable_flash_attention(hf_config)
+    logger.debug(f"model config: {hf_config}, device:{default_device}")
+    kwargs = dict(model_path=model_path, with_llm=with_llm, max_memory=max_memory, hf_config=hf_config, backend=backend, default_device=default_device)
 
     for name, module in VISION_MODELS.module_dict.items():
         try:
@@ -75,3 +98,24 @@ def load_vl_model(model_path: str,
             raise
 
     raise ValueError(f'unsupported vl model with config {hf_config}')
+
+def vl_model_with_tokenizer(model_path: str, with_llm: bool = True):
+    """load visual model."""
+    vl_model = load_vl_model(model_path, backend='pytorch', with_llm=with_llm).vl_model
+    llm = vl_model
+    if hasattr(vl_model, 'language_model'):  # deepseek vl
+        llm = vl_model.language_model
+    elif hasattr(vl_model, 'llm'):  # MiniCPMV
+        llm = vl_model.llm
+    elif hasattr(vl_model, 'visual') and hasattr(vl_model, 'model'): # Qwen2.5VL
+        if hasattr(vl_model.model, "model"):
+            llm = vl_model.model
+    else:
+        raise Exception(f"LLM model not found in {vl_model}")
+    
+    llm.config.use_cache = False
+    llm.half().eval()
+    from transformers import AutoTokenizer
+    tokenizer = AutoTokenizer.from_pretrained(model_path,
+                                              trust_remote_code=True)
+    return vl_model, llm, tokenizer

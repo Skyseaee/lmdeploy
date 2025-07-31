@@ -20,7 +20,8 @@ class VisonModel(ABC):
                  with_llm: bool = False,
                  max_memory: Dict[int, int] = None,
                  hf_config: AutoConfig = None,
-                 backend: str = ''):
+                 backend: str = '',
+                 default_device='auto'):
         """init."""
         self.model_path = model_path
         self.with_llm = with_llm
@@ -30,6 +31,7 @@ class VisonModel(ABC):
             _, hf_config = get_model_arch(model_path)
         self.hf_config = hf_config
         self.image_token_id = self.get_pad_token_id(model_path, hf_config) or 0
+        self.default_device = default_device
 
     def get_pad_token_id(self, model_path, hf_config):
         """Get pad_token_id from hf_config or tokenizer."""
@@ -165,7 +167,7 @@ class VisonModel(ABC):
             images.extend([(x['image'], {
                 k: v
                 for k, v in x.items() if k not in {'type', 'image'}
-            }) for x in content if x['type'] == 'image'])
+            }) for x in content if (x['type'] == 'image' and not x["cache_hit"])])
         return images
 
     def to_pytorch_aux(self, messages, prompt, IMAGE_TOKEN, tokenizer, sequence_start):

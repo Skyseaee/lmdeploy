@@ -1,10 +1,9 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import os
-from typing import Dict, List, Optional, Union
-
+import hashlib
+import io
 import asyncio
-from typing import Dict, List, Literal, Optional, Tuple, Union
-
+from typing import Dict, List, Literal, Optional, Tuple, Union, Any
 import PIL
 
 from lmdeploy.messages import PytorchEngineConfig, TurbomindEngineConfig, VisionConfig
@@ -13,11 +12,17 @@ from lmdeploy.serve.async_engine import AsyncEngine
 from lmdeploy.utils import get_logger, try_import_deeplink
 from lmdeploy.vl.engine import ImageEncoder
 from lmdeploy.vl.utils import load_image
-
+from lmdeploy.vl.image_embed_cache import LazyRunTracer, init_image_embedding_cache, ImageEmbedKey
 logger = get_logger('lmdeploy')
 
 VLPromptType = Union[str, Tuple[str, PIL.Image.Image], Tuple[str, List[PIL.Image.Image]]]
 
+
+def md5_of_pil_image(image) -> str:
+    with io.BytesIO() as buffer:
+        image.save(buffer, format='PNG')
+        img_bytes = buffer.getvalue()
+    return hashlib.md5(img_bytes).hexdigest()
 
 class VLAsyncEngine(AsyncEngine):
     """Visual Language Async inference engine."""
@@ -36,6 +41,14 @@ class VLAsyncEngine(AsyncEngine):
             raise RuntimeError(
                 'please specify chat template as guided in https://lmdeploy.readthedocs.io/en/latest/inference/vl_pipeline.html#set-chat-template'  # noqa: E501
             )
+
+        self.enable_vl_cache = bool(os.getenv('ONELLM_ENABLE_VL_CACHE',"ONELLM_VL_CACHE_BACKEND" in os.environ)) and self.backend == 'turbomind'
+        logger.info(f"enable_vl_cache: {self.enable_vl_cache}")
+        self.embedding_cache = init_image_embedding_cache(
+                    kv_backend=os.getenv("ONELLM_VL_CACHE_BACKEND", "LRU_CACHE").upper(), 
+                    model_path=model_path)
+        self.result_to_cpu = LazyRunTracer("to_cpu")
+
 
     @classmethod
     def _convert_prompts(cls, prompts: Union[VLPromptType, List[Dict], List[VLPromptType], List[List[Dict]]]):
@@ -76,6 +89,34 @@ class VLAsyncEngine(AsyncEngine):
 
         chat_template = self.chat_template if do_preprocess else BaseChatTemplate()
         messages = await self.async_convert_to_pil_images(messages)
+        if self.enable_vl_cache:
+            feats: List[Any] = []
+            nohit_indices: List[ImageEmbedKey] = []
+            image_idx, no_hit_num = 0, 0
+            # iterate through messages to find image data
+            # find image feature in image embedding cache
+            # set flag `cache_hit` to True if the image feature is found
+            for idx, message in enumerate(messages):
+                content = message['content']
+                if not isinstance(content, List): continue
+                for x in content:
+                    if x['type'] != 'image': continue
+                    if 'hash' not in x:
+                        x.update(hash=md5_of_pil_image(x['image']))
+                    hash_key = x.get('hash', None)
+                    feat = self.embedding_cache.get(hash_key)
+                    if feat is not None:
+                        feats.append(feat)
+                        x.update(cache_hit=True)
+                    else:
+                        feats.append(None)
+                        nohit_indices.append(ImageEmbedKey(hash=hash_key, index=image_idx))
+                        no_hit_num += 1
+                    image_idx += 1
+            if no_hit_num == 0:
+                messages.extend([{'role': 'preprocess', 'content': None},{'role': 'forward', 'content': feats}])
+                results = await self.vl_encoder.wrap_for_turbomind(messages, chat_template, self.tokenizer, sequence_start)
+                return results
         results = await self.vl_encoder.preprocess(messages)
         if self.backend == 'turbomind':
             # for tm engine, this module perform vision embedding after image
@@ -84,6 +125,12 @@ class VLAsyncEngine(AsyncEngine):
             # embedding_ranges and so on. All the returned values are passed
             # to tm engine for token generation
             results = await self.vl_encoder.async_infer(results)
+            if self.enable_vl_cache:
+                for idx, res in zip(nohit_indices, results[-1]['content']):
+                    result = self.result_to_cpu(res)
+                    self.embedding_cache.put(idx.hash, result)
+                    feats[idx.index] = result
+                results[-1].update(content = feats)
             results = await self.vl_encoder.wrap_for_turbomind(results, chat_template, self.tokenizer, sequence_start)
         elif self.backend == 'pytorch':
             # for pt engine, this module only conduct the image preprocessing
@@ -144,7 +191,7 @@ class VLAsyncEngine(AsyncEngine):
                     try:
                         url = data.pop('url')
                         image = load_image(url)
-                        data.update(type='image', image=image)
+                        data.update(type='image', image=image, cache_hit=False)
                         message['content'].append(data)
                     except KeyError:
                         logger.error(f'invalid format {message}')
@@ -170,7 +217,7 @@ class VLAsyncEngine(AsyncEngine):
                     data = item['image_data'].copy()
                     try:
                         image = data.pop('data')
-                        data.update(type='image', image=image)
+                        data.update(type='image', image=image, cache_hit=False)
                         message['content'].append(data)
                     except KeyError:
                         logger.error(f'invalid format {message}')

@@ -12,6 +12,7 @@ import sys
 from typing import Any, Optional
 from collections import deque
 from threading import Lock, RLock
+from dataclasses import dataclass
 
 import numpy as np
 import torch
@@ -576,3 +577,27 @@ class EmbeddingMooncake(EmbeddingCacheInterface):
     def max_capacity(self):
         return "inf"
     
+@dataclass
+class ImageEmbedKey:
+    hash: str = None
+    index: int = -1
+    
+def init_image_embedding_cache(kv_backend, **kwargs):
+    if kv_backend in ["LOCAL_MEMORY", "MOONCAKE"]:
+        # check_kvcache_deps_install()
+        os.environ['BACKEND'] = kv_backend
+        embedding_cache = EmbeddingMooncake(model_name=kwargs.get("model_name", "default_model"))
+        logger.info(f'🌟ImageEmbedding Cache: ais_kvcache, backend:{kv_backend}')
+        logger.info(f'Distributed KVCache support environments variables:'
+                    f'MASTER_SERVER={os.getenv("MASTER_SERVER", "127.0.0.1:50051")},'
+                    f'METADATA_ADDR={os.getenv("METADATA_ADDR", "127.0.0.1:2379")},'
+                    f'GLOBAL_SEGMENT_SIZE=3200M, LOCAL_BUFFER_SIZE=1024M'
+                    )
+    elif kv_backend == "LRU_CACHE":
+        # image embedding cache for oneLLM
+        CAPACITY_SIZE = 1024
+        logger.info(f"🌟ImageEmbedding Cache: LRUCache, CapacitySize: {CAPACITY_SIZE}")
+        embedding_cache = EmbeddingLRUCache(capacity=CAPACITY_SIZE)
+    else:
+        raise ValueError(f"KV_Backend list:[\"LOCAL_MEMORY\", \"MOONCAKE\", \"LRU_CACHE\"], Unsupported kv_backend: {kv_backend}")
+    return embedding_cache

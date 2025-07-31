@@ -31,7 +31,4 @@ from lmdeploy.utils import get_logger
 import logging
 logger = get_logger("lmdeploy", log_level=logging.INFO)
 
-# AIP_LOG_LEVEL = env("AIP_LOG_LEVEL", str, "DEBUG")
-# logger.remove()
-# logger.add(sys.stderr, level=AIP_LOG_LEVEL)
-TRT_LOG_LEVEL = env("TRT_LOG_LEVEL", str, "INFO")
+TRT_LOG_LEVEL = env("TM_LOG_LEVEL", str, "DEBUG")
