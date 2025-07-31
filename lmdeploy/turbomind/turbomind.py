@@ -29,9 +29,9 @@ from lmdeploy.utils import get_max_batch_size, get_model
 
 from .deploy.config import TurbomindModelConfig
 from .supported_models import is_supported
-from .utils import ModelSource, get_model_source, get_logger
+from .utils import ModelSource, get_model_source
 
-logger = get_logger('lmdeploy')
+from aipinfer import logger
 
 # TODO: find another way import _turbomind
 lmdeploy_dir = osp.split(lmdeploy.__file__)[0]
@@ -291,7 +291,7 @@ class TurboMind:
         # get tm params
         tm_params = tm_model.tm_params
         self._get_model_params(model_comm, tm_params)
-        logger.warning(f'get {len(tm_params)} model params')
+        logger.warn(f'get {len(tm_params)} model params')
         return model_comm
 
     def _from_workspace(self, model_path: str, engine_config: TurbomindEngineConfig):
@@ -306,7 +306,7 @@ class TurboMind:
         assert cfg.model_config.attn_tp_size == engine_config.attn_tp_size, \
             f'tp size mismatch ({cfg.model_config.attn_tp_size} vs {engine_config.attn_tp_size})'
         if cfg.tensor_para_size != engine_config.tp:
-            logger.warning(
+            logger.warn(
                 'tp in engine_config is different from in config.yaml'
                 f'({config_path}), {engine_config.tp} vs '
                 f'{cfg.tensor_para_size}, using tp={cfg.tensor_para_size}')
@@ -318,7 +318,7 @@ class TurboMind:
                 f'{cfg.enable_expert_parallel}, using enable_expert_parallel={cfg.enable_expert_parallel}')
 
         if cfg.enable_attention_dp != engine_config.enable_attention_dp:
-            logger.warning(
+            logger.warn(
                 'enable_attention_dp in engine_config is different from in config.yaml'
                 f'({config_path}), {engine_config.enable_attention_dp} vs '
                 f'{cfg.enable_attention_dp}, using enable_attention_dp={cfg.enable_attention_dp}')
