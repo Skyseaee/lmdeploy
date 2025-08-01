@@ -1,11 +1,13 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import random
 from typing import Union
+from lmdeploy import messages
+from lmdeploy.model import BaseChatTemplate
 import numpy as np
 import torch
 from PIL import Image
 
-from lmdeploy.vl.model.builder import load_vl_model
+from lmdeploy.vl.engine import ImageEncoder
 from lmdeploy.lite.utils.load_multimodal_data import load_multimodal_data
 from lmdeploy.vl.utils import load_image
 
@@ -310,7 +312,7 @@ def get_ultrachat_2k(tokenizer, nsamples, seed, seqlen):
     return trainloader, None
 
 
-def get_llvm_dataset(tokenizer, nsamples, seed, seqlen=2048, **kwargs):
+async def get_llvm_dataset(tokenizer, nsamples, seed, seqlen=2048, **kwargs):
     """Load llvm dataset and tokenize for llvm.
 
     Args:
@@ -339,7 +341,7 @@ def get_llvm_dataset(tokenizer, nsamples, seed, seqlen=2048, **kwargs):
     np.random.seed(seed=seed)
     random.shuffle(combined)
 
-    model = load_vl_model(model_path)
+    vl_encoder = ImageEncoder(model_path, backend='turbomind')
     
     samples = []
     temp = {'input_ids': None, 'input_embeddings': None} 
@@ -354,7 +356,7 @@ def get_llvm_dataset(tokenizer, nsamples, seed, seqlen=2048, **kwargs):
         line = text.strip()
         
         # encode image
-        result = encoding_image(image, line, tokenizer, model)
+        result = await encoding_image(image, line, tokenizer, vl_encoder)
 
         if temp['input_ids'] is None:
             temp['input_ids'] = result['input_ids']
@@ -380,35 +382,61 @@ def get_llvm_dataset(tokenizer, nsamples, seed, seqlen=2048, **kwargs):
     return samples, None   
 
 
-def encoding_image(image_path: Union[str, Image.Image], prompt: str, tokenizer, model):
-    encoded_image = load_image(image_path)
+async def encoding_image(image_path: Union[str, Image.Image], prompt: str, tokenizer, vl_encoder):
+    if isinstance(image_path, str):
+        image_path = load_image(image_path).convert('RGB')
+    elif isinstance(image_path, Image.Image):
+        image_path = image_path
+    else:
+        raise ValueError(f'Invalid image path: {image_path}')
 
-    # get vl_encoder
-    results = {}
+    messages = [
+        {
+            'role': 'user',
+            'content': [
+                {'type': 'text', 'text': prompt},
+                {'type': 'image_url', 'image_url': {'url': f"file://{image_path}" if isinstance(image_path, str) else "memory_image"}},
+            ]
+        }
+    ]
 
-    segs = ["A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER:", prompt]
-    with torch.inference_mode():
-        outputs = model.forward([encoded_image])[0]
+    chat_template = BaseChatTemplate()
+    messages = await vl_encoder.async_convert_to_pil_images(messages)
+    results = await vl_encoder.preprocess(messages)
+    results = await vl_encoder.async_infer(results)
+    
+    tm_results = await vl_encoder.wrap_for_turbomind(results, chat_template, tokenizer, sequence_start=True)
+    features = tm_results['input_embeddings']
+    input_ids = tm_results['input_ids']
 
-    # outputs = [x.cpu() for x in outputs]
-    features = outputs.cpu().squeeze()
-    input_ids = []
-    embeddings = None
+    segs = [
+        "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER:", 
+        prompt
+    ]
+
+    final_embeddings = []
+    final_input_ids = []
+    embedding_ranges = []
+
     for i, seg in enumerate(segs):
-        if i > 0:
-            image_dim = features.shape[0]
-            input_ids.extend([0] * image_dim)
-            embeddings = torch.cat((embeddings, features), dim=0)
-        if embeddings is None:
-            embeddings = torch.zeros(len(seg), features.size(1))
-        else:
-            embeddings = torch.cat((embeddings, torch.zeros(len(seg), features.size(1))), dim=0)
+        # add text seg
         seg_ids = tokenizer.encode(seg)
-        input_ids.extend(seg_ids)
+        final_input_ids.extend(seg_ids)
+        final_embeddings.append(torch.zeros(len(seg_ids), features.size(1)))
 
-    results['input_embeddings'] = embeddings
-    results['input_ids'] = input_ids
-    return results
+        if i == 0:
+            img_start = len(final_input_ids)
+            final_input_ids.extend([0] * len(features))
+            final_embeddings.append(features)
+            img_end = len(final_input_ids)
+            embedding_ranges.append((img_start, img_end))
+        
+
+    return {
+        'input_embeddings': torch.cat(final_embeddings, dim=0),
+        'input_ids': final_input_ids,
+        'embedding_ranges': embedding_ranges,
+    }
 
 
 def get_calib_loaders(name, tokenizer, nsamples=128, seed=0, seqlen=2048, **kwargs):
@@ -443,4 +471,13 @@ def get_calib_loaders(name, tokenizer, nsamples=128, seed=0, seqlen=2048, **kwar
         return get_ultrachat_2k(tokenizer, nsamples, seed, seqlen)
     
     if 'llvm' in name:
-        return get_llvm_dataset(tokenizer, nsamples, seed, seqlen, **kwargs)
+        async def _async_wrapper():
+            return await get_llvm_dataset(tokenizer, nsamples, seed, seqlen, **kwargs)
+        
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        return loop.run_until_complete(_async_wrapper())
