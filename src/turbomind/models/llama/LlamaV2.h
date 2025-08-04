@@ -71,6 +71,9 @@ private:
                  Buffer           finished,
                  Buffer           local_token_nums,
                  Buffer           lora_mask,
+                 Tensor           moe_fp8_buf,
+                 Tensor           moe_fp16_buf,
+                 Tensor           moe_gate_fp32_buf,
                  int              decode_num,
                  int              prefil_num,
                  const Sequence** sequences);
@@ -114,6 +117,7 @@ private:
     const float  rmsnorm_eps_;
     const size_t local_head_num_;
     const size_t local_kv_head_num_;
+    const size_t max_expert_num_;
 
     const std::shared_ptr<LlamaWeight> weights_;
 

@@ -43,7 +43,8 @@ LlamaWeight::LlamaWeight(DataType           data_type,
     data_type_{data_type},
     weight_type_{model.weight_type},
     tp_size_(engine_param.attn_tp_size),
-    tp_rank_(engine_param.attn_tp_rank)
+    tp_rank_(engine_param.attn_tp_rank),
+    quant_mode_(model.quant_mode)
 {
     if (vocab_size_padded_ % tp_size_ != 0) {
         vocab_size_padded_ = (vocab_size_ + tp_size_ - 1) / tp_size_ * tp_size_;
@@ -63,8 +64,8 @@ LlamaWeight::LlamaWeight(DataType           data_type,
     TM_CHECK_EQ(vocab_size_padded_ % tp_size_, 0);
     TM_CHECK_EQ(hidden_units_ % tp_size_, 0);
 
-    pre_decoder_embedding.emplace(embedding_size_, hidden_units_ / tp_size_, data_type, false, data_type, 1);
-    post_decoder_embedding.emplace(hidden_units_, vocab_size_padded_ / tp_size_, data_type, false, data_type, 1);
+    pre_decoder_embedding.emplace(embedding_size_, hidden_units_ / tp_size_, data_type, false, data_type, 1, quant_mode_);
+    post_decoder_embedding.emplace(hidden_units_, vocab_size_padded_ / tp_size_, data_type, false, data_type, 1, quant_mode_);
     register_module("tok_embeddings", pre_decoder_embedding, tp_rank_);
     register_module("output", post_decoder_embedding, tp_rank_);
 

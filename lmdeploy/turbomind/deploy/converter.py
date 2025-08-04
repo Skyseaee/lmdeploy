@@ -81,7 +81,7 @@ def copy_tokenizer(model_path: str, tokenizer_path: str, tm_tokenizer_path: str)
             shutil.copy(json_path, osp.join(tm_tokenizer_path, _file))
 
 
-def get_output_model_registered_name_and_config(model_path: str, model_format: str, dtype: str, group_size: int):
+def get_output_model_registered_name_and_config(model_path: str, model_format: str, dtype: str, group_size: int, quant_algo: str = 'none'):
     """Get the registered name of the turbomind model and its configuration
     according to the input model path, format and user-input config. The name
     will be used to access the OUTPUT_MODELS registry.
@@ -112,7 +112,8 @@ def get_output_model_registered_name_and_config(model_path: str, model_format: s
         group_size = 128 if group_size == 0 else group_size
     elif model_format == 'fp8':
         weight_type = 'fp8'
-        group_size = -1
+        if quant_algo == "fp8_static":
+            group_size = -1
     else:
         weight_type = torch_dtype
 
@@ -191,6 +192,7 @@ def get_tm_model(model_path,
     """
     _, cfg = get_model_arch(model_path)
     quant_config = search_nested_config(cfg.to_dict(), 'quantization_config')
+    quant_algo = 'none'
     if quant_config:
         quant_method = quant_config.get('quant_method')
         _group_size = int(quant_config.get('group_size', 0))
@@ -212,7 +214,12 @@ def get_tm_model(model_path,
                 quant_config.get('sym', True), \
                 f'unsupported quant config: {quant_config}'
         elif quant_method == 'fp8':
-            pass
+            # NOTE(Alan): fp8 quant method current only support fp8_static and fp8_dynamic_block_scale
+            quant_algo = 'fp8_static'
+            if 'weight_block_size' in quant_config:
+                weight_block_size = quant_config['weight_block_size']
+                _group_size = weight_block_size[0]
+                quant_algo = 'fp8_block_scales'
         else:
             assert 0, f'unsupported quant_config: {quant_config}'
 
@@ -239,8 +246,10 @@ def get_tm_model(model_path,
             model_path=model_path,
             model_format=engine_config.model_format,
             dtype=engine_config.dtype,
-            group_size=group_size)
+            group_size=group_size,
+            quant_algo=quant_algo)
 
+    tm_cfg.model_config.quant_algo = quant_algo
     tm_cfg.model_config.chat_template = chat_template_name
     tm_cfg.model_config.model_name = model_name
 

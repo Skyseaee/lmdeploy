@@ -13,3 +13,8 @@
 # limitations under the License.
 
 add_subdirectory(unittests)
+
+if(${CMAKE_CUDA_COMPILER_VERSION} VERSION_GREATER 12.0)
+    add_subdirectory(fp8_gemm)
+    add_subdirectory(fuse_gated_gemm)
+endif()

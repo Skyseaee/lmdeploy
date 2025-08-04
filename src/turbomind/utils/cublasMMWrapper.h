@@ -15,7 +15,6 @@
  */
 
 #include "cuda_utils.h"
-#include "src/turbomind/utils/allocator.h"
 #include "src/turbomind/utils/cublasAlgoMap.h"
 #include <array>
 #include <cublasLt.h>
@@ -48,7 +47,6 @@ protected:
     cublasAlgoMap* cublas_algo_map_;
     std::mutex*    mu_;
 
-    IAllocator* allocator_        = nullptr;
     void*       cublas_workspace_ = nullptr;
 
     friend class cublasINT8MMWrapper;
@@ -72,7 +70,7 @@ public:
                     cudaStream_t     stream,
                     cublasAlgoMap*   map,
                     std::mutex*      mu,
-                    IAllocator*      allocator);
+                    void*            cublas_workspace);
 
 #ifdef SPARSITY_ENABLED
     cublasMMWrapper(cublasHandle_t     cublas_handle_,
@@ -81,7 +79,7 @@ public:
                     cudaStream_t       stream,
                     cublasAlgoMap*     map,
                     std::mutex*        mu,
-                    IAllocator*        allocator);
+                    void*              cublas_workspace);
 #endif
 
     virtual ~cublasMMWrapper();

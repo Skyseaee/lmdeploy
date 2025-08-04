@@ -1,6 +1,7 @@
 
 #include <cuda_runtime.h>
 #include <cuda_runtime_api.h>
+#include <driver_types.h>
 
 #include "src/turbomind/core/allocator.h"
 #include "src/turbomind/core/check.h"
@@ -30,7 +31,7 @@ public:
             props.location.type = cudaMemLocationTypeDevice;
             props.location.id   = device_.id;
             check_cuda_error(cudaMemPoolCreate(&pool_, &props));
-            cuuint64_t thres = (cuuint64_t)-1;
+            uint64_t thres = (uint64_t)-1;
             check_cuda_error(cudaMemPoolSetAttribute(pool_, cudaMemPoolAttrReleaseThreshold, &thres));
         }
     }

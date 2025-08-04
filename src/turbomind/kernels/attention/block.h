@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "src/turbomind/utils/cuda_fp8_utils.h"
 #include "src/turbomind/kernels/core/common.h"
 #include "src/turbomind/kernels/core/data_type.h"
 #include "src/turbomind/kernels/core/sub_byte_ptr.h"
@@ -12,7 +13,7 @@ namespace turbomind {
 
 namespace block {
 
-template<class T, class Tkv, int HeadDim>
+template<class T, class Tkv, int HeadDim, bool FP8Static>
 struct Config {
     int head_num_;
     int block_len_;
@@ -22,8 +23,12 @@ struct Config {
         if constexpr (std::is_same_v<T, Tkv>) {
             return 0;
         }
-        else {
-            return bitsof<T>;
+        else 
+        {
+            if constexpr (FP8Static)
+                return 0;
+            else
+                return bitsof<T>;
         }
     }
 

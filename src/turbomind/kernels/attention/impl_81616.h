@@ -159,7 +159,8 @@ struct Impl<MMA_81616, T_, Tkv_, CTA_H_, CTA_Q_, CTA_S_, WARP_H_, WARP_Q, WARP_S
             gmem_K.SetSmem(storage.KV.data(), storage.KVp);
             gmem_V.SetSmem(storage.KV.data() + pred * SmemLayoutK::kSize, storage.KVp + pred * SmemLayoutKVp::kSize);
         }
-        else {
+        else
+        {
             gmem_K.SetSmem(storage.KV.data());
             gmem_V.SetSmem(storage.KV.data() + pred * SmemLayoutK::kSize);
         }
@@ -251,6 +252,7 @@ struct Impl<MMA_81616, T_, Tkv_, CTA_H_, CTA_Q_, CTA_S_, WARP_H_, WARP_Q, WARP_S
         {
             smem_K       = storage.KV.data();
             smem_K_param = storage.KVp;
+
             static_assert(!kUseSmemQ, "not implemented");
             PRAGMA_UNROLL
             for (int n = 0; n < K_N; ++n) {
@@ -315,6 +317,7 @@ struct Impl<MMA_81616, T_, Tkv_, CTA_H_, CTA_Q_, CTA_S_, WARP_H_, WARP_Q, WARP_S
                         }
                     }
                 }
+
                 PRAGMA_UNROLL
                 for (int s = 0; s < 2; ++s) {
                     PRAGMA_UNROLL
@@ -383,6 +386,7 @@ struct Impl<MMA_81616, T_, Tkv_, CTA_H_, CTA_Q_, CTA_S_, WARP_H_, WARP_Q, WARP_S
         {
             const int warp_id = threadIdx.x / WARP_SIZE;
             const int lane_id = threadIdx.x % WARP_SIZE;
+
             if (kQuantKV && m == 0) {
                 static_assert(V_K == 1);
                 const int k = 0;
@@ -444,6 +448,7 @@ struct Impl<MMA_81616, T_, Tkv_, CTA_H_, CTA_Q_, CTA_S_, WARP_H_, WARP_Q, WARP_S
                     PRAGMA_UNROLL
                     for (int d = 0; d < 2; ++d) {
                         auto& d2 = (Array<T, 2>&)frag_V[m][0][s * 4 + d * 2];
+
                         PRAGMA_UNROLL
                         for (int i = 0; i < 2; ++i) {
                             d2[i] = __hfma(d2[i], param_V[0][s][0], param_V[0][s][1]);

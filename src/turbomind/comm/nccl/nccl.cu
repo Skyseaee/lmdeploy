@@ -195,25 +195,47 @@ public:
                                       int          token_num,
                                       DataType     dtype,
                                       int          group,
-                                      cudaStream_t stream) override
+                                      cudaStream_t stream,
+                                      void*        hidden_states_fp8,
+                                      void*        moe_fp8_buf,
+                                      void*        moe_fp16_buf,
+                                      float        shared_expert_scale,
+                                      float        moe_expert_scale) override
     {
         const auto elem_size = byte_size(dtype);
+        const auto fp8_elem_size = byte_size(DataType::kFloat8_e4m3);
 
         auto rms_norm = [&](int64_t first, int64_t count) {
-            invokeResidualBiasRMSNorm((char*)hidden + elem_size * first * dim,
-                                      (char*)residual + elem_size * first * dim,
-                                      weights,
-                                      bias,
-                                      dtype,
-                                      dim,
-                                      count,
-                                      eps,
-                                      stream);
+            if (hidden_states_fp8 != nullptr || moe_fp8_buf != nullptr || moe_fp16_buf != nullptr)
+                invokeResidualBiasRMSNormAndQuantFP8((char*)hidden_states_fp8 + fp8_elem_size * first * dim,
+                                                     (char*)residual + elem_size * first * dim,
+                                                     (char*)moe_fp8_buf + fp8_elem_size * first * dim,
+                                                     (char*)moe_fp16_buf + elem_size * first * dim,
+                                                     (char*)hidden + elem_size * first * dim,
+                                                     weights,
+                                                     bias,
+                                                     shared_expert_scale,
+                                                     moe_expert_scale,
+                                                     dtype,
+                                                     dim,
+                                                     count,
+                                                     eps,
+                                                     stream);
+            else
+                invokeResidualBiasRMSNorm((char*)hidden + elem_size * first * dim,
+                                          (char*)residual + elem_size * first * dim,
+                                          weights,
+                                          bias,
+                                          dtype,
+                                          dim,
+                                          count,
+                                          eps,
+                                          stream);
         };
 
         if (1) {
             AllReduceSum(hidden, hidden, token_num * dim, dtype, group, stream);
-            rms_norm(0, token_num);
+	        rms_norm(0, token_num);
         }
         else {  // Only useful for large input size
             const int    n_ranks   = this->n_ranks(group);

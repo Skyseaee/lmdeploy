@@ -83,14 +83,14 @@ struct ScaledEpilogueBase {
   // Don't want to support nullptr by default
   template <typename T, bool EnableNullPtr = false>
   using ColLoad = cutlass::epilogue::fusion::Sm90ColBroadcast<
-      0 /*Stages*/, typename EpilogueDescriptor::TileShape, T,
-      Stride<Int<1>, Int<0>, Int<0>>, 128 / sizeof_bits_v<T>, EnableNullPtr>;
+      0 /*Stages*/, typename EpilogueDescriptor::TileShape, T, T,
+      Stride<Int<1>, Int<0>, Int<0>> , 128 / sizeof_bits_v<T>, EnableNullPtr>;
 
   // Don't want to support nullptr by default
   template <typename T, bool EnableNullPtr = false>
   using RowLoad = cutlass::epilogue::fusion::Sm90RowBroadcast<
-      0 /*Stages*/, typename EpilogueDescriptor::TileShape, T,
-      Stride<Int<0>, Int<1>, Int<0>>, 128 / sizeof_bits_v<T>, EnableNullPtr>;
+      0 /*Stages*/, typename EpilogueDescriptor::TileShape, T, T,
+      Stride<Int<0>, Int<1>, Int<0>> , 128 / sizeof_bits_v<T>, EnableNullPtr>;
 
   // This utility function constructs the arguments for the load descriptors
   // from a tensor. It can handle both row and column, as well as row/column or
@@ -165,11 +165,18 @@ struct ScaledEpilogue
 
   static ArgumentType prepare_args(const float* a_scales,
                                    const float* b_scales) {
+    // auto a_args = SUPER::template args_from_tensor<ScaleA, float>(a_scales, 1);
+    // auto b_args = SUPER::template args_from_tensor<ScaleB, float>(b_scales, 1);
+
+    // //typename EVTCompute0::Arguments evt0_args{b_args};
+    // //return ArgumentType{a_args, b_args};
+    // return ArgumentType{};
+
     auto a_args = SUPER::template args_from_tensor<ScaleA, float>(a_scales, 1);
     auto b_args = SUPER::template args_from_tensor<ScaleB, float>(b_scales, 1);
 
-    typename EVTCompute0::Arguments evt0_args{b_args};
-    return ArgumentType{a_args, evt0_args};
+    typename EVTCompute0::Arguments evt0_args{b_args, {}, {}};
+    return ArgumentType{a_args, evt0_args, {}};
   }
 };
 

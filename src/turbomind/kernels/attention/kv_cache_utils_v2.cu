@@ -11,9 +11,21 @@
 #include "src/turbomind/models/llama/llama_utils.h"
 #include "src/turbomind/utils/cuda_utils.h"
 
+#define BOOL_SWITCH(COND, CONST_NAME, ...)                                                                             \
+    [&] {                                                                                                              \
+        if (COND) {                                                                                                    \
+            constexpr static bool CONST_NAME = true;                                                                   \
+            return __VA_ARGS__();                                                                                      \
+        }                                                                                                              \
+        else {                                                                                                         \
+            constexpr static bool CONST_NAME = false;                                                                  \
+            return __VA_ARGS__();                                                                                      \
+        }                                                                                                              \
+    }()
+
 namespace turbomind {
 
-template<class Tkv, int CTA_S, int HeadDim, int WarpCnt, class T, class BlockLayout>
+template<class Tkv, int CTA_S, int HeadDim, int WarpCnt, bool FP8Static, class T, class BlockLayout>
 __global__ void __launch_bounds__(128) ProcessKV_v2(char**          blocks,
                                                     const T*        k,
                                                     const T*        v,
@@ -92,6 +104,11 @@ __global__ void __launch_bounds__(128) ProcessKV_v2(char**          blocks,
                 Ldg(vec_K[s][c], &k[index]);
                 Ldg(vec_V[s][c], &v[index]);
             }
+            else {
+                // TODO(Alan): validate performace degrade or not
+                clear(vec_K[s][c]);
+                clear(vec_V[s][c]);
+            }
         }
     }
 
@@ -130,54 +147,91 @@ __global__ void __launch_bounds__(128) ProcessKV_v2(char**          blocks,
         }
     }
 
-    Array<T, 2> param_K[ITER_S];
-    Array<T, 2> param_V[ITER_S];
+    // NOTE(Alan): currently, only fp8 kv quant static need to discard quant scale
+    //             otherwise, the quant scale param must calculate
+    if constexpr (FP8Static) {
+        Array<Tkv, kVecSize> out_K[ITER_S][ITER_C];
+        Array<Tkv, kVecSize> out_V[ITER_S][ITER_C];
 
-    if constexpr (!std::is_same_v<T, Tkv>) {
-        warp_stats<Map::kWarpThreadC>(param_K, vec_K, bitsof<Tkv>);
-        warp_stats<Map::kWarpThreadC>(param_V, vec_V, bitsof<Tkv>);
-    }
-
-    Array<Tkv, kVecSize> out_K[ITER_S][ITER_C];
-    Array<Tkv, kVecSize> out_V[ITER_S][ITER_C];
-
-    PRAGMA_UNROLL
-    for (int s = 0; s < ITER_S; ++s) {
-        ConvertKvCache<T, Tkv> conv_K{param_K[s][0], param_K[s][1]};
-        ConvertKvCache<T, Tkv> conv_V{param_V[s][0], param_V[s][1]};
         PRAGMA_UNROLL
-        for (int c = 0; c < ITER_C; ++c) {
-            out_K[s][c] = conv_K(vec_K[s][c]);
-            out_V[s][c] = conv_V(vec_V[s][c]);
+        for (int s = 0; s < ITER_S; ++s) {
+            PRAGMA_UNROLL
+            for (int c = 0; c < ITER_C; ++c) {
+                out_K[s][c] = ConvertKvCache<T, Tkv>::convert(vec_K[s][c]);
+                out_V[s][c] = ConvertKvCache<T, Tkv>::convert(vec_V[s][c]);
+            }
+        }
+
+        blocks += cu_block_num[batch_idx];
+
+        block::Head<T, Tkv, BlockLayout> block_head{block_layout, layer_id, head_idx};
+
+        PRAGMA_UNROLL
+        for (int s = 0; s < ITER_S; ++s) {
+            const int qi = offset.y + s * Map::kDeltaS + token_idx;  // local offset into `input_length`
+            if (qi < q_len) {
+                const int ti = history_len + qi;  // timestep
+                block_head.with((char**)blocks, ti, [&](auto k_cache, auto v_cache, T* k_param, T* v_param) {
+                    PRAGMA_UNROLL
+                    for (int c = 0; c < ITER_C; ++c) {
+                        int di = offset.x + c * Map::kDeltaC;
+                        Store(&k_cache[di], out_K[s][c]);
+                        Store(&v_cache[di], out_V[s][c]);
+                    }
+                });
+            }
         }
     }
+    else {
+        Array<T, 2> param_K[ITER_S];
+        Array<T, 2> param_V[ITER_S];
 
-    blocks += cu_block_num[batch_idx];
+        if constexpr (!std::is_same_v<T, Tkv>) {
+            warp_stats<Tkv, Map::kWarpThreadC>(param_K, vec_K, bitsof<Tkv>);
+            warp_stats<Tkv, Map::kWarpThreadC>(param_V, vec_V, bitsof<Tkv>);
+        }
 
-    block::Head<T, Tkv, BlockLayout> block_head{block_layout, layer_id, head_idx};
+        Array<Tkv, kVecSize> out_K[ITER_S][ITER_C];
+        Array<Tkv, kVecSize> out_V[ITER_S][ITER_C];
 
-    PRAGMA_UNROLL
-    for (int s = 0; s < ITER_S; ++s) {
-        const int qi = offset.y + s * Map::kDeltaS + token_idx;  // local offset into `input_length`
-        if (qi < q_len) {
-            const int ti = history_len + qi;  // timestep
-            block_head.with((char**)blocks, ti, [&](auto k_cache, auto v_cache, T* k_param, T* v_param) {
-                PRAGMA_UNROLL
-                for (int c = 0; c < ITER_C; ++c) {
-                    int di = offset.x + c * Map::kDeltaC;
-                    Store(&k_cache[di], out_K[s][c]);
-                    Store(&v_cache[di], out_V[s][c]);
-                }
-                if constexpr (!std::is_same_v<T, Tkv>) {
-                    if (offset.x == 0) {
-                        StoreQuantParam<Tkv>(k_param, param_K[s]);
-                        StoreQuantParam<Tkv>(v_param, param_V[s]);
-                        // if (ti == history_len) {
-                        // printf("src %d %f %f\n", ti, (float)param_K[s][0], (float)param_K[s][1]);
-                        // }
+        PRAGMA_UNROLL
+        for (int s = 0; s < ITER_S; ++s) {
+            ConvertKvCache<T, Tkv> conv_K{param_K[s][0], param_K[s][1]};
+            ConvertKvCache<T, Tkv> conv_V{param_V[s][0], param_V[s][1]};
+            PRAGMA_UNROLL
+            for (int c = 0; c < ITER_C; ++c) {
+                out_K[s][c] = conv_K(vec_K[s][c]);
+                out_V[s][c] = conv_V(vec_V[s][c]);
+            }
+        }
+
+        blocks += cu_block_num[batch_idx];
+
+        block::Head<T, Tkv, BlockLayout> block_head{block_layout, layer_id, head_idx};
+
+        PRAGMA_UNROLL
+        for (int s = 0; s < ITER_S; ++s) {
+            const int qi = offset.y + s * Map::kDeltaS + token_idx;  // local offset into `input_length`
+            if (qi < q_len) {
+                const int ti = history_len + qi;  // timestep
+                block_head.with((char**)blocks, ti, [&](auto k_cache, auto v_cache, T* k_param, T* v_param) {
+                    PRAGMA_UNROLL
+                    for (int c = 0; c < ITER_C; ++c) {
+                        int di = offset.x + c * Map::kDeltaC;
+                        Store(&k_cache[di], out_K[s][c]);
+                        Store(&v_cache[di], out_V[s][c]);
                     }
-                }
-            });
+                    if constexpr (!std::is_same_v<T, Tkv>) {
+                        if (offset.x == 0) {
+                            StoreQuantParam<Tkv>(k_param, param_K[s]);
+                            StoreQuantParam<Tkv>(v_param, param_V[s]);
+                            // if (ti == history_len) {
+                            // printf("src %d %f %f\n", ti, (float)param_K[s][0], (float)param_K[s][1]);
+                            // }
+                        }
+                    }
+                });
+            }
         }
     }
 }
@@ -211,52 +265,62 @@ void invokeProcessKV_v2(char**                 blocks,
     int  block = WARPS * WARP_SIZE;
     dim3 grid((max_q_len + CTA_S - 1) / CTA_S, head_num, batch_size);
 
-    auto invoke = [&](auto tkv, const auto dim) {
+    auto invoke = [&](auto tkv, const auto dim, const auto fp8_static) {
         using Tkv = decltype(tkv);
 
         constexpr int kHeadDim = dim;
         FT_CHECK(head_dim == kHeadDim);
 
-        block::Layout block_layout{block::Config<T, Tkv, kHeadDim>{head_num, block_seq_len}};
+        BOOL_SWITCH(fp8_static, kFP8Static, [&] {
+            block::Layout block_layout{block::Config<T, Tkv, kHeadDim, kFP8Static>{head_num, block_seq_len}};
 
-        ProcessKV_v2<Tkv, CTA_S, kHeadDim, WARPS><<<grid, block, 0, stream>>>(blocks,
-                                                                              k,
-                                                                              v,
-                                                                              k_bias,
-                                                                              v_bias,
-                                                                              cu_q_len,
-                                                                              cu_k_len,
-                                                                              cu_block_num,
-                                                                              rope_param,
-                                                                              stride_b,
-                                                                              stride_c,
-                                                                              stride_h,
-                                                                              stride_s,
-                                                                              layer_id,
-                                                                              block_layout);
+            ProcessKV_v2<Tkv, CTA_S, kHeadDim, WARPS, kFP8Static><<<grid, block, 0, stream>>>(blocks,
+                                                                                              k,
+                                                                                              v,
+                                                                                              k_bias,
+                                                                                              v_bias,
+                                                                                              cu_q_len,
+                                                                                              cu_k_len,
+                                                                                              cu_block_num,
+                                                                                              rope_param,
+                                                                                              stride_b,
+                                                                                              stride_c,
+                                                                                              stride_h,
+                                                                                              stride_s,
+                                                                                              layer_id,
+                                                                                              block_layout);
+        });
     };
 
-    auto dispatch = [&](auto tkv) {
+    auto dispatch = [&](auto tkv, auto fp8_static) {
         if (head_dim == 64) {
-            return invoke(tkv, std::integral_constant<int, 64>{});
+            return invoke(tkv, std::integral_constant<int, 64>{}, fp8_static);
         }
         else if (head_dim == 128) {
-            return invoke(tkv, std::integral_constant<int, 128>{});
+            return invoke(tkv, std::integral_constant<int, 128>{}, fp8_static);
         }
         else if (head_dim == 192) {
-            return invoke(tkv, std::integral_constant<int, 192>{});
+            return invoke(tkv, std::integral_constant<int, 192>{}, fp8_static);
         }
         FT_CHECK(0);
     };
 
     if (quant_policy & QuantPolicy::kCacheKVInt8) {
-        dispatch(uint8_t{});
+        dispatch(uint8_t{}, false);
     }
+#ifdef ENABLE_FP8
+    else if (quant_policy & QuantPolicy::kCacheKVFP8) {
+        dispatch(__nv_fp8_e4m3{}, true);
+    }
+    else if (quant_policy & QuantPolicy::kCacheKVFP8Dynamic) {
+        dispatch(uint8_t{}, false);
+    }
+#endif
     else if (quant_policy & QuantPolicy::kCacheKVInt4) {
-        dispatch(uint4_t{});
+        dispatch(uint4_t{}, false);
     }
     else {
-        dispatch(T{});
+        dispatch(T{}, false);
     }
 }
 
@@ -285,10 +349,10 @@ void invokeProcessKV_v2(char**                 blocks,
 
 INSTANTIATE_invokeProcessKV_v2(half);
 #if ENABLE_BF16
-INSTANTIATE_invokeProcessKV_v2(nv_bfloat16);
+        INSTANTIATE_invokeProcessKV_v2(nv_bfloat16);
 #endif
 
-template<int CTA_S, int HeadDim, int WarpCnt, class T, class Tkv, class BlockLayout>
+template<int CTA_S, int HeadDim, int WarpCnt, bool FP8Static, class T, class Tkv, class BlockLayout>
 __global__ void __launch_bounds__(128) flattenKV_v2(T*              k,
                                                     T*              v,
                                                     const Tkv**     blocks,
@@ -338,36 +402,63 @@ __global__ void __launch_bounds__(128) flattenKV_v2(T*              k,
 
     block::Head<T, Tkv, BlockLayout> block_head{block_layout, layer_id, head_idx};
 
-    Array<T, 2> param_K[ITER_S];
-    Array<T, 2> param_V[ITER_S];
+    if constexpr (FP8Static) {
+        PRAGMA_UNROLL
+        for (int s = 0; s < ITER_S; ++s) {
+            const int si = offset.y + s * Map::kDeltaS + token_idx;
+            if (si < seq_len) {
+                block_head.with((char**)blocks, si, [&](auto k_cache, auto v_cache, T* k_param, T* v_param) {
+                    PRAGMA_UNROLL
+                    for (int c = 0; c < ITER_C; ++c) {
+                        int di = offset.x + c * Map::kDeltaC;
+                        Ldg(vec_K[s][c], &k_cache[di]);
+                        Ldg(vec_V[s][c], &v_cache[di]);
+                    }
+                });
+            }
+        }
 
-    PRAGMA_UNROLL
-    for (int s = 0; s < ITER_S; ++s) {
-        const int si = offset.y + s * Map::kDeltaS + token_idx;
-        if (si < seq_len) {
-            block_head.with((char**)blocks, si, [&](auto k_cache, auto v_cache, T* k_param, T* v_param) {
-                PRAGMA_UNROLL
-                for (int c = 0; c < ITER_C; ++c) {
-                    int di = offset.x + c * Map::kDeltaC;
-                    Ldg(vec_K[s][c], &k_cache[di]);
-                    Ldg(vec_V[s][c], &v_cache[di]);
-                }
-                if constexpr (!std::is_same_v<T, Tkv>) {
-                    Ldg(param_K[s], k_param);
-                    Ldg(param_V[s], v_param);
-                }
-            });
+        PRAGMA_UNROLL
+        for (int s = 0; s < ITER_S; ++s) {
+            PRAGMA_UNROLL
+            for (int c = 0; c < ITER_C; ++c) {
+                out_K[s][c] = ConvertKvCache<Tkv, T>::convert(vec_K[s][c]);
+                out_V[s][c] = ConvertKvCache<Tkv, T>::convert(vec_V[s][c]);
+            }
         }
     }
+    else {
+        Array<T, 2> param_K[ITER_S];
+        Array<T, 2> param_V[ITER_S];
 
-    PRAGMA_UNROLL
-    for (int s = 0; s < ITER_S; ++s) {
-        ConvertKvCache<Tkv, T> conv_K{param_K[s][0], param_K[s][1]};
-        ConvertKvCache<Tkv, T> conv_V{param_V[s][0], param_V[s][1]};
         PRAGMA_UNROLL
-        for (int c = 0; c < ITER_C; ++c) {
-            out_K[s][c] = conv_K(vec_K[s][c]);
-            out_V[s][c] = conv_V(vec_V[s][c]);
+        for (int s = 0; s < ITER_S; ++s) {
+            const int si = offset.y + s * Map::kDeltaS + token_idx;
+            if (si < seq_len) {
+                block_head.with((char**)blocks, si, [&](auto k_cache, auto v_cache, T* k_param, T* v_param) {
+                    PRAGMA_UNROLL
+                    for (int c = 0; c < ITER_C; ++c) {
+                        int di = offset.x + c * Map::kDeltaC;
+                        Ldg(vec_K[s][c], &k_cache[di]);
+                        Ldg(vec_V[s][c], &v_cache[di]);
+                    }
+                    if constexpr (!std::is_same_v<T, Tkv>) {
+                        Ldg(param_K[s], k_param);
+                        Ldg(param_V[s], v_param);
+                    }
+                });
+            }
+        }
+
+        PRAGMA_UNROLL
+        for (int s = 0; s < ITER_S; ++s) {
+            ConvertKvCache<Tkv, T> conv_K{param_K[s][0], param_K[s][1]};
+            ConvertKvCache<Tkv, T> conv_V{param_V[s][0], param_V[s][1]};
+            PRAGMA_UNROLL
+            for (int c = 0; c < ITER_C; ++c) {
+                out_K[s][c] = conv_K(vec_K[s][c]);
+                out_V[s][c] = conv_V(vec_V[s][c]);
+            }
         }
     }
 
@@ -427,70 +518,81 @@ void invokeFlattenKV_v2(T*                     k,
     constexpr int block = kWarpCnt * WARP_SIZE;
     const dim3    grid((max_seq_len + CTA_S - 1) / CTA_S, head_num, batch_size);
 
-    auto invoke = [&](auto tkv, const auto dim) {
-        using Tkv = decltype(tkv);
+    auto invoke =
+        [&](auto tkv, const auto dim, const auto fp8_static) {
+            using Tkv = decltype(tkv);
 
-        constexpr int kHeadDim = dim;
-        FT_CHECK(head_dim == kHeadDim);
+            constexpr int kHeadDim = dim;
+            FT_CHECK(head_dim == kHeadDim);
 
-        block::Layout block_layout{block::Config<T, Tkv, kHeadDim>{head_num, block_seq_len}};
+        BOOL_SWITCH(fp8_static, kFP8Static, [&] {
+            block::Layout block_layout{block::Config<T, Tkv, kHeadDim, kFP8Static>{head_num, block_seq_len}};
 
-        flattenKV_v2<CTA_S, kHeadDim, kWarpCnt><<<grid, block, 0, stream>>>(k,
-                                                                            v,
-                                                                            (const Tkv**)blocks,
-                                                                            cu_k_len,
-                                                                            cu_block_num,
-                                                                            rope_param,
-                                                                            stride_b,
-                                                                            stride_c,
-                                                                            stride_h,
-                                                                            stride_s,
-                                                                            layer_id,
-                                                                            block_layout);
+            flattenKV_v2<CTA_S, kHeadDim, kWarpCnt, kFP8Static><<<grid, block, 0, stream>>>(k,
+                                                                                v,
+                                                                                (const Tkv**)blocks,
+                                                                                cu_k_len,
+                                                                                cu_block_num,
+                                                                                rope_param,
+                                                                                stride_b,
+                                                                                stride_c,
+                                                                                stride_h,
+                                                                                stride_s,
+                                                                                layer_id,
+                                                                                block_layout);
+        });
     };
 
-    auto dispatch = [&](auto tkv) {
+    auto dispatch = [&](auto tkv, auto fp8_static) {
         if (head_dim == 64) {
-            return invoke(tkv, std::integral_constant<int, 64>{});
+            return invoke(tkv, std::integral_constant<int, 64>{}, fp8_static);
         }
         else if (head_dim == 128) {
-            return invoke(tkv, std::integral_constant<int, 128>{});
+            return invoke(tkv, std::integral_constant<int, 128>{}, fp8_static);
         }
         else if (head_dim == 192) {
-            return invoke(tkv, std::integral_constant<int, 192>{});
+            return invoke(tkv, std::integral_constant<int, 192>{}, fp8_static);
         }
         FT_CHECK(0);
     };
 
     if (quant_policy & QuantPolicy::kCacheKVInt8) {
-        dispatch(uint8_t{});
+        dispatch(uint8_t{}, false);
     }
+    #ifdef ENABLE_FP8
+    else if (quant_policy & QuantPolicy::kCacheKVFP8) {
+        dispatch(__nv_fp8_e4m3(), true);
+    }
+    else if (quant_policy & QuantPolicy::kCacheKVFP8Dynamic) {
+        dispatch(uint8_t(), false);
+    }
+    #endif
     else if (quant_policy & QuantPolicy::kCacheKVInt4) {
-        dispatch(uint4_t{});
+        dispatch(uint4_t{}, false);
     }
     else {
-        dispatch(T{});
+        dispatch(T{}, false);
     }
 }
 
-#define INSTANTIATE_invokeFlattenKV_v2(type)                                                                           \
-    template void invokeFlattenKV_v2(type*                  k,                                                         \
-                                     type*                  v,                                                         \
-                                     char**                 blocks,                                                    \
-                                     const int*             cu_k_len,                                                  \
-                                     const int*             cu_block_num,                                              \
-                                     const RopeKernelParam& rope_param,                                                \
-                                     int64_t                stride_b,                                                  \
-                                     int64_t                stride_c,                                                  \
-                                     int64_t                stride_h,                                                  \
-                                     int64_t                stride_s,                                                  \
-                                     int                    block_seq_len,                                             \
-                                     int                    layer_id,                                                  \
-                                     int                    max_seq_len,                                               \
-                                     int                    head_num,                                                  \
-                                     int                    head_dim,                                                  \
-                                     int                    batch_size,                                                \
-                                     int                    quant_policy,                                              \
+#define INSTANTIATE_invokeFlattenKV_v2(type)                                                                   \
+    template void invokeFlattenKV_v2(type*                  k,                                                 \
+                                     type*                  v,                                                 \
+                                     char**                 blocks,                                            \
+                                     const int*             cu_k_len,                                          \
+                                     const int*             cu_block_num,                                      \
+                                     const RopeKernelParam& rope_param,                                        \
+                                     int64_t                stride_b,                                          \
+                                     int64_t                stride_c,                                          \
+                                     int64_t                stride_h,                                          \
+                                     int64_t                stride_s,                                          \
+                                     int                    block_seq_len,                                     \
+                                     int                    layer_id,                                          \
+                                     int                    max_seq_len,                                       \
+                                     int                    head_num,                                          \
+                                     int                    head_dim,                                          \
+                                     int                    batch_size,                                        \
+                                     int                    quant_policy,                                      \
                                      cudaStream_t           stream);
 
 INSTANTIATE_invokeFlattenKV_v2(half);

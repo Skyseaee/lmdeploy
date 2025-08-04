@@ -2,10 +2,13 @@
 
 #include "src/turbomind/kernels/core/array_ops.h"
 #include "src/turbomind/kernels/core/data_type.h"
+#include "src/turbomind/utils/cuda_fp8_utils.h"
 
 #include <cmath>
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
+#include <cuda_fp8.h>
+#include <iostream>
 
 namespace turbomind {
 
@@ -329,7 +332,7 @@ __device__ inline void warp_minmax(Array<T, 2>& stats, const Array<T, C>& x)
     }
 }
 
-template<int WarpThreadC, class P, class T, class B, int N, int C, int S>
+template<typename TKv, int WarpThreadC, class P, class T, class B, int N, int C, int S>
 __device__ void warp_stats(Array<P, 2> (&param)[S], const Array<T, N> (&x)[S][C], B n_bits)
 {
     PRAGMA_UNROLL
@@ -339,19 +342,34 @@ __device__ void warp_stats(Array<P, 2> (&param)[S], const Array<T, N> (&x)[S][C]
         for (int c = 0; c < C; ++c) {
             warp_minmax<WarpThreadC>(stats, x[s][c]);
         }
-        const float inv_q_max = fdividef(1.f, float((1 << n_bits) - 1));
-        const float scale     = ((float)stats[1] - (float)stats[0]) * inv_q_max;
-        param[s][0]           = (P)scale;
-        param[s][1]           = (P)stats[0];
 
-        if constexpr (kForceIntZeroPoint) {
-#if TM_ROUND_USE_CVT_RNI
-            // rintf -> cvt.rni.f32.f32
-            param[s][1] = (P)(rintf((float)stats[0] / scale) * scale);
-#else
-            // roundf -> cvt.rzi.f32.f32(x + 0.5)
-            param[s][1] = (P)(roundf((float)stats[0] / scale) * scale);
+#if ENABLE_FP8
+        if constexpr (std::is_same_v<TKv, __nv_fp8_e4m3>)
+        {
+            // NOTE(Alan): aligned with trt-llm and vllm impl
+            constexpr float min_scaling_factor = 1.0f / (FP8_E4M3_MAX * 512.0f);
+
+            const float scale  = max(fabs((float)stats[1]), fabs((float)stats[0])) / float(FP8_E4M3_MAX);
+            param[s][0]        = (P)(std::max(scale, min_scaling_factor));
+            param[s][1]        = (P)0.0f;
+        }
+        else
 #endif
+        {
+            const float inv_q_max = fdividef(1.f, float((1 << n_bits) - 1));
+            const float scale     = ((float)stats[1] - (float)stats[0]) * inv_q_max;
+            param[s][0]           = (P)scale;
+            param[s][1]           = (P)stats[0];
+
+            if constexpr (kForceIntZeroPoint) {
+    #if TM_ROUND_USE_CVT_RNI
+                // rintf -> cvt.rni.f32.f32
+                param[s][1] = (P)(rintf((float)stats[0] / scale) * scale);
+    #else
+                // roundf -> cvt.rzi.f32.f32(x + 0.5)
+                param[s][1] = (P)(roundf((float)stats[0] / scale) * scale);
+    #endif
+            }
         }
     }
 }
@@ -424,7 +442,13 @@ struct ConvertKvCache<T, uint8_t> {
         // NVCC complains if we put this in the member init list
         inv_scale_ = (T)fdividef(1.f, (float)scale);
     }
-
+    template<int N>
+    __device__ static auto convert(const Array<T, N>& vi)
+    {
+        assert(false);
+        Array<uint8_t, N> vo;
+        return vo;
+    }
     template<int N>
     __device__ auto operator()(const Array<T, N>& vi) const
     {
@@ -446,7 +470,13 @@ struct ConvertKvCache<T, uint4_t> {
         // NVCC complains if we put this in the member init list
         inv_scale_ = (T)fdividef(1.f, (float)scale);
     }
-
+    template<int N>
+    __device__ static auto convert(const Array<T, N>& vi)
+    {
+        assert(false);
+        Array<uint4_t, N> vo;
+        return vo;
+    }
     static __device__ Array<uint4_t, 8> pack(const Array<uint8_t, 8>& vi)
     {
         Array<uint32_t, 2> ui = (Array<uint32_t, 2>&)vi;
@@ -744,6 +774,134 @@ struct ConvertKvCache<fp8_e4m3, T> {
         }
     }
 };
+#endif
+
+
+#ifdef ENABLE_FP8
+
+//  f16/bf16 -> fp8
+template<class T>
+struct ConvertKvCache<T, __nv_fp8_e4m3> {
+    float  inv_scale_;
+    T  zero_;
+    __device__ ConvertKvCache(T scale, T zero)
+        : zero_{zero}
+    {
+        // NVCC complains if we put this in the member init list
+        inv_scale_ = fdividef(1.f, (float)scale + 1e-6);
+    }
+
+    template<int N>
+    __device__ static auto convert(const Array<T, N>& vi)
+    {
+        // printf("ConvertKvCache with static convert fp16 to fp8");
+        Array<__nv_fp8_e4m3, N> vo;
+        PRAGMA_UNROLL
+        for (int i = 0; i < N; ++i) {
+            vo[i] = __nv_fp8_e4m3(vi[i]);
+        }
+        return vo;
+    }
+
+    template<int N>
+    __device__ auto operator()(const Array<T, N>& vi) const
+    {
+        // printf("ConvertKvCache with call fp16 to fp8");
+        Array<__nv_fp8_e4m3, N> vo;
+        PRAGMA_UNROLL
+        for (int i = 0; i < N; ++i) {
+            vo[i] = scaled_vec_conversion<__nv_fp8_e4m3, T>((vi[i] - zero_), inv_scale_);
+        }
+        return vo;
+    }
+};
+
+// fp8 -> f16/bf16
+template<class T>
+struct ConvertKvCache<__nv_fp8_e4m3, T> {
+    float  scale_;
+    T  zero_;
+    __device__ ConvertKvCache(T scale, T zero)
+        : scale_(float(scale)), zero_{zero}
+    { }
+
+    template<int N>
+    __device__ static auto convert(const Array<__nv_fp8_e4m3, N>& vi)
+    {
+        // printf("ConvertKvCache with static convert fp8 to fp16");
+        Array<T, N> vo;
+        if constexpr (N % 8 == 0)
+        {
+            // NOTE(Alan): optimization branch currently only support (N % 8 == 0)
+            //             otherwise may occured result error
+            #pragma unroll
+            for (int n = 0; n < N; n += 8)
+            {
+                auto& ui = (const Array<__nv_fp8_e4m3, 8>&)vi[n];
+                auto& uo = (Array<T, 8>&)vo[n];
+
+                // NOTE(Alan): Specialization N equal 8 and half type
+                if constexpr (std::is_same_v<T, half>)
+                {
+                    *reinterpret_cast<uint4 *>(&uo) = vec_conversion<uint4, uint2>(*reinterpret_cast<const uint2 *>(&ui));
+                }
+                else
+                {
+                    PRAGMA_UNROLL
+                    for (int i = 0; i < 8; ++i)
+                        uo[i] = T(ui[i]);
+                }
+            }
+        }
+        else
+        {
+            PRAGMA_UNROLL
+            for (int i = 0; i < N; ++i)
+                vo[i] = T(vi[i]);
+        }
+        
+        return vo;
+    }
+
+    template<int N>
+    __device__ auto operator()(const Array<__nv_fp8_e4m3, N>& vi) const
+    {
+        // printf("ConvertKvCache with call fp8 to fp16, %d\n", N);
+        Array<T, N> vo;
+        if constexpr (N % 8 == 0)
+        {
+            // NOTE(Alan): optimization branch currently only support (N % 8 == 0)
+            //             otherwise may occured result error
+            #pragma unroll
+            for (int n = 0; n < N; n += 8)
+            {
+                auto& ui = (const Array<__nv_fp8_e4m3, 8>&)vi[n];
+                auto& uo = (Array<T, 8>&)vo[n];
+
+                // NOTE(Alan): Specialization N equal 8 and half type
+                if constexpr (std::is_same_v<T, half>)
+                {
+                    *reinterpret_cast<uint4 *>(&uo) = scaled_vec_conversion<uint4, uint2>(*reinterpret_cast<const uint2 *>(&ui), scale_);
+                }
+                else
+                {
+                    PRAGMA_UNROLL
+                    for (int i = 0; i < 8; ++i)
+                        uo[i] = T(ui[i]);
+                }
+            }
+        }
+        else
+        {
+            PRAGMA_UNROLL
+            for (int i = 0; i < N; ++i)
+                vo[i] = scaled_vec_conversion<T, __nv_fp8_e4m3>(vi[i], scale_);
+        }
+
+        return vo;
+    }
+};
+
 #endif
 
 template<class Q, class T>

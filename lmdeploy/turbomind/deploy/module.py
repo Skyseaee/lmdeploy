@@ -103,6 +103,7 @@ class Ffn(Module):
         self.inter_size = model.model_config.inter_size
         self.group_size = max(1, model.model_config.group_size)
         self.model_format = model.model_config.model_format
+        self.quant_algo = model.model_config.quant_algo
 
     def _export(self,
                 inter_size: int,
@@ -157,8 +158,8 @@ class Ffn(Module):
                               copy=copy)
 
     def apply(self, i: int, r: BaseReader):
-        for e in get_params(r.ffn(i, None), model_format=self.model_format):
-            if self.model_format == 'fp8':
+        for e in get_params(r.ffn(i, None), model_format=self.model_format, quant_algo=self.quant_algo):
+            if self.model_format == 'fp8' and self.quant_algo == 'fp8_static':
                 e(partial(self._export_fp8, self._ffn), partial(r.ffn, i), i,
                   module_type='ffn')
             else:
@@ -188,12 +189,11 @@ class MoeFfn(Ffn):
     def apply(self, i: int, r: BaseReader):
         if self.expert_num[i] == 0:
             return
-
-        for p in get_params(r.moe_ffn_expert()):
+        for p in get_params(r.moe_ffn_expert(), model_format=self.model_format, quant_algo=self.quant_algo):
             for e in range(self.expert_num[i] * self.ep):
                 fmt = self._moe_ffn_expert.replace('E', str(e))
 
-                if self.model_format == 'fp8':
+                if self.model_format == 'fp8' and self.quant_algo == 'fp8_static':
                     p(partial(self._export_fp8, fmt), partial(r.moe_ffn_expert, e, i),
                       i, module_type='ffn')
                 else:
@@ -224,9 +224,15 @@ class Attn(Module):
         self.attn_bias = model.model_config.attn_bias
         self.qk_norm = model.model_config.qk_norm
         self.model_format = model.model_config.model_format
+        self.quant_algo = model.model_config.quant_algo
 
     def _reorder_and_merge(self, qkvo, block_size, kind='qweight'):
-        q, k, v, o = qkvo
+        if self.model_format == 'fp8' and self.quant_algo == 'fp8_static':
+            # don't need transpose o for TN FP8 Gemm
+            qkv, o = qkvo[:-1], qkvo[-1]
+            q, k, v = map(transpose, qkv)
+        else:
+            q, k, v, o = qkvo
         # reorder output dim for tm's rotary embedding layout
         if self.model.permute_qk:
             if block_size == 1:
@@ -235,7 +241,7 @@ class Attn(Module):
             else:
                 assert block_size % self.head_dim == 0
         qkv = merge_qkv_v2(q, k, v, self.tp)
-        if self.model_format == 'fp8' and kind == 'qweight':
+        if self.model_format == 'fp8' and self.quant_algo == 'fp8_static' and kind == 'qweight':
             # transpose tensor after merge_qkv, for TN FP8 GemmW
             qkv = transpose(qkv)
         # zero bias for `wo` when `w_qkv` has bias but `wo` doesn't
@@ -323,8 +329,8 @@ class Attn(Module):
 
     def apply(self, i: int, r: BaseReader):
         for e in get_params(r.attn(i, None), bias=self.attn_bias,
-                            model_format=self.model_format):
-            if self.model_format == 'fp8' and isinstance(e, QuantWeightFP8):
+                            model_format=self.model_format, quant_algo=self.quant_algo):
+            if self.model_format == 'fp8' and self.quant_algo == 'fp8_static' and isinstance(e, QuantWeightFP8):
                 e(self._export_fp8, partial(r.attn, i), i, module_type='attn')
             else:
                 e(self._export, partial(r.attn, i), i)
@@ -350,6 +356,7 @@ class MLA(Module):
     def __init__(self, model: BaseOutputModel):
         self.model = model
 
+    # TODO(Alan): not support quant algo yet
     def _export(self, idx: int, xs, kind: str, pack_fn, **kwargs):
         if all(x is None for x in xs):
             return

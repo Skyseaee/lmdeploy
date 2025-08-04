@@ -16,15 +16,26 @@ cmake_minimum_required(VERSION 3.8)
 
 find_package(CUDAToolkit REQUIRED)
 
-add_library(cuda_utils STATIC cuda_utils.cc)
-set_property(TARGET cuda_utils PROPERTY POSITION_INDEPENDENT_CODE  ON)
-set_property(TARGET cuda_utils PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS  ON)
-target_link_libraries(cuda_utils PUBLIC CUDA::cudart CUDA::cuda_driver)
-
 add_library(logger STATIC logger.cc)
 set_property(TARGET logger PROPERTY POSITION_INDEPENDENT_CODE  ON)
 set_property(TARGET logger PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS  ON)
 target_link_libraries(logger PUBLIC CUDA::cudart)
+
+add_library(cublasAlgoMap STATIC cublasAlgoMap.cc)
+set_property(TARGET cublasAlgoMap PROPERTY POSITION_INDEPENDENT_CODE ON)
+set_property(TARGET cublasAlgoMap PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS ON)
+target_link_libraries(cublasAlgoMap PUBLIC CUDA::cublas CUDA::cudart CUDA::curand cuda_utils logger)
+
+add_library(cublasMMWrapper STATIC cublasMMWrapper.cc)
+set_property(TARGET cublasMMWrapper PROPERTY POSITION_INDEPENDENT_CODE ON)
+set_property(TARGET cublasMMWrapper PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS ON)
+target_link_libraries(cublasMMWrapper PUBLIC CUDA::cublas CUDA::cudart CUDA::curand cublasAlgoMap cuda_utils logger)
+
+add_library(cuda_utils STATIC cuda_utils.cc)
+set_property(TARGET cuda_utils PROPERTY POSITION_INDEPENDENT_CODE  ON)
+set_property(TARGET cuda_utils PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS  ON)
+target_link_libraries(cuda_utils PUBLIC logger CUDA::cudart CUDA::cuda_driver)
+
 
 add_library(nvtx_utils STATIC nvtx_utils.cc)
 set_property(TARGET nvtx_utils PROPERTY POSITION_INDEPENDENT_CODE  ON)
@@ -40,6 +51,10 @@ set_property(TARGET memory_utils PROPERTY POSITION_INDEPENDENT_CODE  ON)
 set_property(TARGET memory_utils PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS  ON)
 target_link_libraries(memory_utils PUBLIC cuda_utils logger)
 
+add_library(cuda_fp8_utils STATIC cuda_fp8_utils.cu)
+set_property(TARGET cuda_fp8_utils PROPERTY POSITION_INDEPENDENT_CODE ON)
+set_property(TARGET cuda_fp8_utils PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS ON)
+
 add_library(anomaly_handler STATIC anomaly_handler.cu)
 set_property(TARGET anomaly_handler PROPERTY POSITION_INDEPENDENT_CODE  ON)
 set_property(TARGET anomaly_handler PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS  ON)
@@ -47,3 +62,19 @@ target_link_libraries(anomaly_handler PUBLIC cuda_utils logger)
 
 add_library(parser STATIC parser.cc)
 set_property(TARGET parser PROPERTY POSITION_INDEPENDENT_CODE  ON)
+
+add_library(rng_utils STATIC rng_utils.cu)
+set_property(TARGET rng_utils PROPERTY POSITION_INDEPENDENT_CODE ON)
+set_property(TARGET rng_utils PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS ON)
+
+add_library(env_utils STATIC env_utils.cpp)
+set_property(TARGET env_utils PROPERTY POSITION_INDEPENDENT_CODE ON)
+set_property(TARGET env_utils PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS ON)
+
+if(ENABLE_FP8)
+    add_library(cublasFP8MMWrapper STATIC cublasFP8MMWrapper.cu)
+    set_property(TARGET cublasFP8MMWrapper PROPERTY POSITION_INDEPENDENT_CODE ON)
+    set_property(TARGET cublasFP8MMWrapper PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS ON)
+    target_link_libraries(cublasFP8MMWrapper PUBLIC -lcublasLt -lcudart -lcurand
+        cublasAlgoMap cublasMMWrapper nvtx_utils)
+endif()

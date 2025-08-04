@@ -107,6 +107,28 @@ void RNG::GenerateNormal(T* out, size_t count, float scale, float shift)
     impl_->GenerateNormal(out, count, scale, shift);
 }
 
+void RNG::UniformFloat(Ref<Tensor> out_, float scale, float shift)
+{
+    auto& out = out_.get();
+    TM_CHECK(out.size() == out.layout().cosize());
+    auto invoke = [&](auto t) {
+        using T = decltype(t);
+        GenerateUniform(out.data<T>(), out.size(), scale, shift);
+    };
+    TM_DISPATCH_DTYPES(out.dtype(), invoke, float, half_t, bfloat16_t);
+}
+
+void RNG::NormalFloat(Ref<Tensor> out_, float scale, float shift)
+{
+    auto& out = out_.get();
+    TM_CHECK(out.size() == out.layout().cosize());
+    auto invoke = [&](auto t) {
+        using T = decltype(t);
+        GenerateNormal(out.data<T>(), out.size(), scale, shift);
+    };
+    TM_DISPATCH_DTYPES(out.dtype(), invoke, float, half_t, bfloat16_t);
+}
+
 cudaStream_t RNG::stream() const
 {
     return impl_->stream_;
@@ -122,11 +144,17 @@ template void RNG::GenerateUniform(float* out, size_t count, float scale, float 
 #if ENABLE_BF16
 template void RNG::GenerateUniform(nv_bfloat16* out, size_t count, float scale, float shift);
 #endif
+#if ENABLE_FP8
+template void RNG::GenerateUniform(__nv_fp8_e4m3* out, size_t count, float scale, float shift);
+#endif
 
 template void RNG::GenerateNormal(half* out, size_t count, float scale, float shift);
 template void RNG::GenerateNormal(float* out, size_t count, float scale, float shift);
 #if ENABLE_BF16
 template void RNG::GenerateNormal(nv_bfloat16* out, size_t count, float scale, float shift);
+#endif
+#if ENABLE_FP8
+template void RNG::GenerateNormal(__nv_fp8_e4m3* out, size_t count, float scale, float shift);
 #endif
 
 }  // namespace turbomind

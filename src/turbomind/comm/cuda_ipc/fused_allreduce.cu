@@ -421,7 +421,12 @@ void CudaIpcCommImpl::AllreduceResidualBiasRMSnorm(void*        hidden,
                                                    int          token_num,
                                                    DataType     dtype,
                                                    int          group,
-                                                   cudaStream_t stream)
+                                                   cudaStream_t stream,
+						   void*        hidden_states_fp8,
+                                      		   void*        moe_fp8_buf,
+                                      		   void*        moe_fp16_buf,
+                                      		   float        shared_expert_scale,
+                                      		   float        moe_expert_scale)
 {
 
     const size_t elemsize = byte_size(dtype);

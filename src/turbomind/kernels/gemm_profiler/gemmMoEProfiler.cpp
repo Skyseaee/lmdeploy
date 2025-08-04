@@ -17,21 +17,21 @@
 
 #include <numeric>
 
-#include "src/turbomind/kernels/fused_gated_gemm/gemm_configs.h"
+#include "src/turbomind/kernels/cutlass_extensions/include/cutlass_extensions/gemm_configs.h"
 #include "src/turbomind/kernels/gemm_profiler/gemmMoEProfiler.h"
 
-using namespace tensorrt_llm::common;
-using namespace tensorrt_llm::kernels;
+//namespace tkc = tensorrt_llm::kernels::cutlass_kernels;
+
 using tensorrt_llm::plugins::MixtureOfExpertsGemmProfiler;
 
 size_t MixtureOfExpertsGemmProfiler::getBytePerElement(turbomind::DataType type)
 {
     size_t bpe;
-    if (type == turbomind::DataType::TYPE_FP16 || type == turbomind::DataType::TYPE_BF16)
+    if (type == turbomind::DataType::kFloat16 || type == turbomind::DataType::kBfloat16)
     {
         bpe = 2;
     }
-    else if (type == turbomind::DataType::TYPE_INT8 || type == turbomind::DataType::TYPE_FP8_E4M3)
+    else if (type == turbomind::DataType::kInt8 || type == turbomind::DataType::kFloat8_e4m3)
     {
         bpe = 1;
     }
@@ -42,7 +42,7 @@ size_t MixtureOfExpertsGemmProfiler::getBytePerElement(turbomind::DataType type)
     return bpe;
 }
 
-void MixtureOfExpertsGemmProfiler::setQuantMode(tensorrt_llm::common::QuantMode const &quantMode)
+void MixtureOfExpertsGemmProfiler::setQuantMode(turbomind::QuantMode const& quantMode)
 {
     mQuantMode = quantMode;
 }
@@ -51,7 +51,7 @@ void MixtureOfExpertsGemmProfiler::runTactic(
     int m, int n, int k, MixtureOfExpertsGemmProfiler::Config const &tactic, char *workspace, cudaStream_t const &stream)
 {
     checkInit();
-    backend.runProfiler(m, tactic, workspace, stream);
+    //backend.runProfiler(m, tactic, workspace, stream);
 
     // size_t bpe = getBytePerElement(mType);
 
@@ -153,14 +153,15 @@ std::vector<MixtureOfExpertsGemmProfiler::Config> MixtureOfExpertsGemmProfiler::
 }
 
 void MixtureOfExpertsGemmProfiler::setMoEParam(const int expert_num, const int experts_per_token, const int expert_hidden_dim, const int expert_inter_size,
-    tensorrt_llm::ActivationType act_type, MOEExpertScaleNormalizationMode normal_type, MOEParallelismConfig paral_config,
+    tensorrt_llm::kernels::cutlass_kernels::ActivationType act_type, /*MOEExpertScaleNormalizationMode normal_type,*/ 
+    tensorrt_llm::kernels::cutlass_kernels::MOEParallelismConfig paral_config,
     turbomind::DataType dtype, turbomind::DataType wtype, turbomind::DataType otype)
 {
     // MoE param
     m_expert_num = expert_num;
     m_experts_per_token = experts_per_token;
     m_act_type = act_type;
-    m_normal_type = normal_type;
+    //m_normal_type = normal_type;
     m_paral_config = paral_config;
     m_dtype = dtype;
     m_wtype = wtype;
@@ -179,11 +180,11 @@ void MixtureOfExpertsGemmProfiler::checkInit()
     }
     init_backend = true;
     backend.init(*mRunner.get(), backend.mGemmToProfile, m_dtype, m_wtype, m_otype,
-        m_expert_num, m_experts_per_token, m_expert_hidden_dim, m_expert_inter_size, m_act_type,
-        false, false, m_paral_config);
+        m_expert_num, m_experts_per_token, m_expert_hidden_dim, m_expert_inter_size, 1/*group_size*/, m_act_type,
+        false, false, false, false, m_paral_config);
 }
 
-void MixtureOfExpertsGemmProfiler::setGemmToProfile(tensorrt_llm::kernels::GemmProfilerBackend::GemmToProfile gemm_to_profile)
+void MixtureOfExpertsGemmProfiler::setGemmToProfile(tensorrt_llm::kernels::cutlass_kernels::GemmProfilerBackend::GemmToProfile gemm_to_profile)
 {
     // Just set the backend directly. This will just be reused in checkInit().
     backend.mGemmToProfile = gemm_to_profile;

@@ -36,6 +36,23 @@ void cutlass_scaled_mm_sm90(T*        res,
                              cudaStream_t         stream);
 #endif
 
+template<typename T>
+void cutlass_scaled_mm_sm89(T*                   res,
+                            int                  batchCount,
+                            int                  m,
+                            int                  n,
+                            int                  k,
+                            int64_t              stride_a,
+                            int64_t              stride_b,
+                            int64_t              stride_d,
+                            const float*         alpha,
+                            const float*         beta,
+                            const __nv_fp8_e4m3* input,
+                            const __nv_fp8_e4m3* kernel,
+                            const float*         input_scale,
+                            const float*         kernel_scale,
+                            cudaStream_t         stream);
+
 bool cutlass_scaled_mm_supports_fp8(int64_t cuda_device_capability) {
   // CUTLASS FP8 kernels need at least
   //   CUDA 12.0 on SM90 systems (Hopper)
@@ -104,24 +121,29 @@ void cutlass_scaled_mm(T*        res,
   int32_t version_num = get_sm_version_num();
   if (version_num >= 90) {
     // Hopper
-
     // Guard against compilation issues for sm90 kernels
 #if defined CUDA_VERSION && CUDA_VERSION >= 12000
     cutlass_scaled_mm_sm90(res, batchCount, m, n, k, stride_a, stride_b, stride_d, alpha, beta, 
       input, kernel, input_scale, kernel_scale, stream);
 #else
     TM_LOG_INFO("[Cutlass_W8A8] CUDA_VERSION %d not support.", CUDA_VERSION);
-    //cutlass_scaled_mm_sm80(c, a, b, a_scales, b_scales, bias);
 #endif
-  } else if (version_num == 89) {
+  } 
+  else if (version_num == 89) {
     // Ada Lovelace
-    TM_LOG_INFO("[Cutlass_W8A8] sm89 not support.");
-    //cutlass_scaled_mm_sm89(c, a, b, a_scales, b_scales, bias);
-  } else if (version_num >= 80) {
+#if defined ENABLE_SCALED_MM_C2X && ENABLE_SCALED_MM_C2X
+    cutlass_scaled_mm_sm89(res, batchCount, m, n, k, stride_a, stride_b, stride_d, alpha, beta, 
+      input, kernel, input_scale, kernel_scale, stream);
+#else
+    TM_LOG_INFO("[Cutlass_W8A8] FP8 on Ada need sm89 compile.");
+#endif
+  }
+  else if (version_num >= 80) {
     // Ampere
     TM_LOG_INFO("[Cutlass_W8A8] sm80 not support.");
     //cutlass_scaled_mm_sm80(c, a, b, a_scales, b_scales, bias);
-  } else {
+  }
+  else {
     // Turing
     //TORCH_CHECK(version_num >= 75);
     TM_LOG_INFO("[Cutlass_W8A8] sm%d not support.", version_num);
@@ -221,7 +243,6 @@ void fused_gated_gemm_ref(__nv_fp8_e4m3*       res,
   turbomind::cudaH2Dcpy<__nv_fp8_e4m3>(res, reinterpret_cast<const __nv_fp8_e4m3 *>(tensor_ref_d.host_data()), m * half_n);
   turbomind::check_cuda_error(cudaDeviceSynchronize());
 }
-
 
 template void cutlass_scaled_mm(half*                res,
                                 int                  batchCount,

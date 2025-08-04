@@ -139,10 +139,21 @@ Result run(std::string description, Options& options, Buffers<ElementT, LayoutB,
         try
         {
             // Correctness / Warmup iteration
-            runner->gemm(buffers.tensor_d.device_data(), buffers.tensor_a.device_data(), buffers.tensor_b.device_data(),
-                buffers.tensor_c_bias.device_data(), tk::QuantMode{}, options.problem_size.m(),
-                options.problem_size.n(), options.problem_size.k(), options.scale_d0, options.scale_d1,
-                options.scale_output, config, workspace.get(), workspace_size, 0);
+            runner->gemm(buffers.tensor_d.device_data(),
+                         buffers.tensor_a.device_data(),
+                         buffers.tensor_b.device_data(),
+                         buffers.tensor_c_bias.device_data(),
+                         turbomind::QuantMode{},
+                         options.problem_size.m(),
+                         options.problem_size.n(),
+                         options.problem_size.k(),
+                         options.scale_d0,
+                         options.scale_d1,
+                         options.scale_output,
+                         config,
+                         workspace.get(),
+                         workspace_size,
+                         0);
         }
         catch (std::runtime_error& e)
         {
@@ -190,10 +201,21 @@ Result run(std::string description, Options& options, Buffers<ElementT, LayoutB,
             cudaEventRecord(start, 0);
             for (int iter = 0; iter < options.iterations; ++iter)
             {
-                runner->gemm(buffers.tensor_d.device_data(), buffers.tensor_a.device_data(),
-                    buffers.tensor_b.device_data(), buffers.tensor_c_bias.device_data(), tk::QuantMode{},
-                    options.problem_size.m(), options.problem_size.n(), options.problem_size.k(), options.scale_d0,
-                    options.scale_d1, options.scale_output, config, workspace.get(), workspace_size, 0);
+                runner->gemm(buffers.tensor_d.device_data(),
+                             buffers.tensor_a.device_data(),
+                             buffers.tensor_b.device_data(),
+                             buffers.tensor_c_bias.device_data(),
+                             turbomind::QuantMode{},
+                             options.problem_size.m(),
+                             options.problem_size.n(),
+                             options.problem_size.k(),
+                             options.scale_d0,
+                             options.scale_d1,
+                             options.scale_output,
+                             config,
+                             workspace.get(),
+                             workspace_size,
+                             0);
             }
             cudaEventRecord(stop, 0);
             cudaEventSynchronize(stop);

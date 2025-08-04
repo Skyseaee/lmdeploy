@@ -13,6 +13,18 @@
 
 namespace turbomind {
 
+struct fp8 {
+    char v;
+};
+struct fp8_e4m3: fp8 {
+};
+struct fp8_e5m2: fp8 {
+};
+
+// NOTE: used for kvfp8 dynamic quant
+struct fp8_dynamic: fp8{
+};
+
 namespace detail {
 
 struct __uint4_t {

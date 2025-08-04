@@ -18,7 +18,6 @@
 #include "src/turbomind/kernels/gemm_profiler/gemmPluginProfiler.h"
 #include "src/turbomind/kernels/fused_gated_gemm/fused_gated_gemm.h"
 #include "src/turbomind/utils/cuda_utils.h"
-#include "src/turbomind/utils/Tensor.h"
 
 namespace tensorrt_llm::plugins
 {
@@ -107,7 +106,7 @@ void GemmPluginProfiler<Config, RunnerPtr, GemmIdType, GemmIdHashType>::initTmpD
 
 template <typename Config, typename RunnerPtr, typename GemmIdType, typename GemmIdHashType>
 void GemmPluginProfiler<Config, RunnerPtr, GemmIdType, GemmIdHashType>::profileTactics(
-    RunnerPtr const& runner, turbomind::DataType const& type, GemmDims const& dims, GemmIdType const& gemmId)
+    RunnerPtr const& runner, turbomind::DataType const& type, GemmDims const& dims, GemmIdType const& gemmId, bool hasWeightOnlyCudaKernel)
 {
     writer_lock lock(mMNKProfileMap->mutex);
 
@@ -311,7 +310,7 @@ template class GemmPluginProfiler<tensorrt_llm::cutlass_extensions::CutlassGemmC
     GemmIdCoreHash>;
 
 template class GemmPluginProfiler<tensorrt_llm::cutlass_extensions::CutlassGemmConfig,
-    std::shared_ptr<tensorrt_llm::kernels::CutlassMoeFCRunnerInterface>, GemmIDMoe,
+    std::shared_ptr<tensorrt_llm::kernels::cutlass_kernels::CutlassMoeFCRunnerInterface>, GemmIDMoe,
     GemmIDMoeHash>;
     
 } // namespace tensorrt_llm::plugins

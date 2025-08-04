@@ -96,7 +96,7 @@ struct CreateCacheIterFactory<CacheIterFactory, std::void_t<typename CacheIterFa
     }
 };
 
-template<class T, class Tkv, int CTA_S, int HeadDim>
-using GetBlockIterFactory = BlockIteratorFactory<T, Tkv, block::Layout<block::Config<T, Tkv, HeadDim>>, CTA_S>;
+template<class T, class Tkv, int CTA_S, int HeadDim, bool FP8Static>
+using GetBlockIterFactory = BlockIteratorFactory<T, Tkv, block::Layout<block::Config<T, Tkv, HeadDim, FP8Static>>, CTA_S>;
 
 }  // namespace turbomind

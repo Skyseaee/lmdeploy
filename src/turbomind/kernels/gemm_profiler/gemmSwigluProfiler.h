@@ -21,10 +21,9 @@
 #include <string>
 #include <vector>
 
-#include "src/turbomind/utils/cuda_utils.h"
-#include "src/turbomind/utils/Tensor.h"
 #include "src/turbomind/kernels/fused_gated_gemm/fused_gated_gemm.h"
 #include "src/turbomind/kernels/gemm_profiler/gemmPluginProfiler.h"
+#include "src/turbomind/utils/cuda_utils.h"
 
 namespace tensorrt_llm::plugins
 {
@@ -39,7 +38,7 @@ class GemmSwigluPluginProfiler : public GemmPluginProfiler<tensorrt_llm::cutlass
 public:
     using Config = tensorrt_llm::cutlass_extensions::CutlassGemmConfig;
 
-    void setQuantMode(tensorrt_llm::common::QuantMode const& quantMode);
+    void setQuantMode(turbomind::QuantMode const& quantMode);
 
     virtual int getMaxProfileM() const override;
 
@@ -58,9 +57,9 @@ protected:
 private:
     size_t getBytePerElement(turbomind::DataType type);
 
-    tensorrt_llm::common::QuantMode mQuantMode = tensorrt_llm::common::QuantMode::fromDescription();
+    turbomind::QuantMode mQuantMode = turbomind::QuantMode::fromDescription();
 
-    turbomind::DataType mType = turbomind::DataType::TYPE_FP8_E4M3;
+    turbomind::DataType mType = turbomind::DataType::kFloat8_e4m3;
 };
 
 } // namespace tensorrt_llm::plugins

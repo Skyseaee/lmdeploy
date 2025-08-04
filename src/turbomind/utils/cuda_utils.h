@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -31,12 +32,35 @@
 #include <cusparseLt.h>
 #endif
 
+#ifdef ENABLE_FP8
+#include <cuda_fp8.h>
+#endif
+
 #include "src/turbomind/core/check.h"
 #include "src/turbomind/macro.h"
 #include "src/turbomind/utils/cuda_bf16_wrapper.h"
 #include "src/turbomind/utils/logger.h"
 
 namespace turbomind {
+
+// workspace for cublas gemm : 32MB
+#define CUBLAS_WORKSPACE_SIZE 33554432
+
+enum FtCudaDataType {
+    FP32 = 0,
+    FP16 = 1,
+    BF16 = 2,
+    INT8 = 3,
+    FP8  = 4
+};
+
+enum CublasDataType {
+    FLOAT_DATATYPE    = 0,
+    HALF_DATATYPE     = 1,
+    BFLOAT16_DATATYPE = 2,
+    INT8_DATATYPE     = 3,
+    FP8_DATATYPE      = 4
+};
 
 /* **************************** debug tools ********************************* */
 static const char* _cudaGetErrorEnum(cudaError_t error)
@@ -118,6 +142,9 @@ void syncAndCheck(const char* const file, int const line);
     }
 
 template<typename T>
+void print_to_screen(const T* result, const int size);
+
+template<typename T>
 void printMatrix(T* ptr, int m, int k, int stride, bool is_device_ptr);
 
 void printMatrix(unsigned long long* ptr, int m, int k, int stride, bool is_device_ptr);
@@ -165,7 +192,24 @@ int getSMVersion();
 
 int getSMCount();
 
-std::string getDeviceName();
+inline int getMaxSharedMemoryPerBlockOptin()
+{
+    int device_id;
+    int max_shared_memory_per_block;
+    check_cuda_error(cudaGetDevice(&device_id));
+    check_cuda_error(
+        cudaDeviceGetAttribute(&max_shared_memory_per_block, cudaDevAttrMaxSharedMemoryPerBlockOptin, device_id));
+    return max_shared_memory_per_block;
+}
+
+inline std::string getDeviceName()
+{
+    int device{-1};
+    check_cuda_error(cudaGetDevice(&device));
+    cudaDeviceProp props;
+    check_cuda_error(cudaGetDeviceProperties(&props, device));
+    return std::string(props.name);
+}
 
 template<class T>
 inline T div_up(T a, T n)
@@ -199,6 +243,104 @@ private:
 };
 
 void trim_default_mempool(int device_id);
+
+inline std::optional<bool> isCudaLaunchBlocking()
+{
+    thread_local bool                firstCall = true;
+    thread_local std::optional<bool> result    = std::nullopt;
+    if (!firstCall) {
+        char const* env = std::getenv("CUDA_LAUNCH_BLOCKING");
+        if (env != nullptr && std::string(env) == "1") {
+            result = true;
+        }
+        else {
+            result = false;
+        }
+        firstCall = false;
+    }
+    return result;
+}
+
+inline bool isCapturing(cudaStream_t stream)
+{
+    cudaStreamCaptureStatus status;
+    check_cuda_error(cudaStreamIsCapturing(stream, &status));
+    return status == cudaStreamCaptureStatus::cudaStreamCaptureStatusActive;
+}
+
+inline bool doCheckError(cudaStream_t stream)
+{
+    auto const cudaLaunchBlocking = isCudaLaunchBlocking();
+    if (cudaLaunchBlocking.has_value() && cudaLaunchBlocking.value()) {
+        return !isCapturing(stream);
+    }
+
+#ifndef NDEBUG
+    // Debug builds will sync when we're not capturing unless explicitly
+    // disabled.
+    bool const checkError = cudaLaunchBlocking.value_or(!isCapturing(stream));
+#else
+    bool const checkError = cudaLaunchBlocking.value_or(false);
+#endif
+
+    return checkError;
+}
+
+inline void syncAndCheckStream(cudaStream_t stream, char const* const file, int const line)
+{
+    if (doCheckError(stream)) {
+        cudaStreamSynchronize(stream);
+        check(cudaGetLastError(), "cudaGetLastError", file, line);
+    }
+}
+
+#define sync_check_cuda_error_stream(stream) syncAndCheckStream(stream, __FILE__, __LINE__)
+
+template<typename T, int num>
+struct packed_as;
+template<typename T>
+struct packed_as<T, 1> {
+    using type = T;
+};
+template<>
+struct packed_as<half, 2> {
+    using type = half2;
+};
+template<>
+struct packed_as<float, 2> {
+    using type = float2;
+};
+template<>
+struct packed_as<int8_t, 2> {
+    using type = int16_t;
+};
+template<>
+struct packed_as<int32_t, 2> {
+    using type = int2;
+};
+template<>
+struct packed_as<half2, 1> {
+    using type = half;
+};
+#ifdef ENABLE_BF16
+template<>
+struct packed_as<__nv_bfloat16, 2> {
+    using type = __nv_bfloat162;
+};
+template<>
+struct packed_as<__nv_bfloat162, 1> {
+    using type = __nv_bfloat16;
+};
+#endif
+
+template<typename T,
+         typename U,
+         typename = std::enable_if_t<std::is_integral<T>::value>,
+         typename = std::enable_if_t<std::is_integral<U>::value>>
+auto constexpr ceilDiv(T numerator, U denominator)
+{
+    return (numerator + denominator - 1) / denominator;
+}
 
 /* ************************** end of common utils ************************** */
 }  // namespace turbomind

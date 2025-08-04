@@ -17,9 +17,9 @@
 
 #pragma once
 
+#include "src/turbomind/core/quant_mode.h"
+#include "src/turbomind/kernels/cutlass_kernels/include/moe_kernels.h"
 #include "src/turbomind/utils/cuda_utils.h"
-#include "src/turbomind/kernels/moe/moe_kernels.h"
-#include "src/turbomind/kernels/fused_gated_gemm/quantization.h"
 
 namespace tensorrt_llm::plugins
 {
@@ -31,13 +31,13 @@ struct GemmIDMoe
     int gemm_idx;
     int num_experts{};
     int moe_k{};
-    tensorrt_llm::kernels::MOEParallelismConfig parallelism_config{};
+    tensorrt_llm::kernels::cutlass_kernels::MOEParallelismConfig parallelism_config{};
     int64_t hidden{};
     int64_t inter{};
-    tensorrt_llm::ActivationType actfn{};
+    tensorrt_llm::kernels::cutlass_kernels::ActivationType actfn{};
     turbomind::DataType dtype{};
     turbomind::DataType wdtype{};
-    tensorrt_llm::common::QuantMode quant_mode;
+    turbomind::QuantMode quant_mode;
     bool determinism_mode = false;
 
     bool operator==(GemmIDMoe const& id) const

@@ -18,6 +18,7 @@
 
 #include "src/turbomind/utils/cuda_bf16_fallbacks.cuh"
 #include "src/turbomind/utils/cuda_bf16_wrapper.h"
+#include "src/turbomind/utils/cuda_fp8_utils.h"
 #include <cuda.h>
 #include <cuda_fp16.h>
 
@@ -595,6 +596,31 @@ __device__ inline __nv_fp8_e4m3 cuda_cast<__nv_fp8_e4m3, int8_t>(int8_t val)
     return cuda_cast<__nv_fp8_e4m3>(cuda_cast<__nv_bfloat16>(cuda_cast<float>(val)));
 }
 
+template<>
+__device__ inline half cuda_cast<half, __nv_fp8_e4m3>(__nv_fp8_e4m3 val)
+{
+    return vec_conversion<half, __nv_fp8_e4m3>(val);
+}
+
+template<>
+__device__ inline __nv_bfloat16 cuda_cast<__nv_bfloat16, __nv_fp8_e4m3>(__nv_fp8_e4m3 val)
+{
+    return vec_conversion<__nv_bfloat16, __nv_fp8_e4m3>(val);
+}
+
+
 #endif  // ENABLE_FP8
+
+template<typename To, typename Ti>
+__device__ inline To cuda_sum(Ti val)
+{
+    return cuda_cast<To>(val);
+};
+
+template<typename To>
+__device__ inline To cuda_sum(float2 val)
+{
+    return cuda_cast<To>(val.x + val.y);
+};
 
 }  // namespace turbomind

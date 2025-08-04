@@ -22,13 +22,13 @@ void Module::register_module(std::string name, Module& module, std::optional<int
         name += ".";
         name += std::to_string(*index);
     }
-    // std::cout << "register Module " << name << " " << &module << ", parent " << this << "\n";
+    TM_LOG_TRACE("register_module %s from %p", name.c_str(), &module);
     modules_.emplace_back(std::move(name), &module);
 }
 
 void Module::register_parameter(std::string name, Tensor& param)
 {
-    // std::cout << "register Parameter " << name << " " << &param << " " << param.layout() << "\n";
+    TM_LOG_TRACE("register_parameter %s from %p", name.c_str(), &param);
     params_.emplace_back(std::move(name), &param);
 }
 
@@ -36,18 +36,21 @@ void Module::remove_module(Module& module)
 {
     for (auto it = modules_.begin(); it != modules_.end(); ++it) {
         if (it->second == &module) {
-            // std::cout << "erase " << it->first << " " << &module << " from " << this << "\n";
+            TM_LOG_TRACE("remove_module %s from %p", it->first.c_str(), &module);
             modules_.erase(it);
             return;
         }
     }
-    TM_CHECK(0) << "module " << &module << " not found";
+
+    TM_LOG_INFO("module %p not found", &module);
+    //TM_CHECK(0) << "module " << &module << " not found";
 }
 
 void Module::remove_parameter(Tensor& param)
 {
     for (auto it = params_.begin(); it != params_.end(); ++it) {
         if (it->second == &param) {
+            TM_LOG_TRACE("remove_parameter %s from %p", it->first.c_str(), &param);
             params_.erase(it);
             return;
         }

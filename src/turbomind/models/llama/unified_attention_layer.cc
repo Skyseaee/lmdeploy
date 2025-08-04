@@ -31,7 +31,6 @@
 #include "src/turbomind/kernels/attention/decoding.h"
 #include "src/turbomind/kernels/attention/kv_cache_utils_v2.h"
 #include "src/turbomind/kernels/norm/rms_norm.h"
-
 #include "src/turbomind/macro.h"
 
 #include "src/turbomind/models/llama/llama_utils.h"
@@ -39,6 +38,7 @@
 #include "src/turbomind/models/llama/unified_attention_layer.h"
 
 #include "src/turbomind/utils/anomaly_handler.h"
+#include "src/turbomind/utils/cuda_fp8_utils.h"
 #include "src/turbomind/utils/cuda_utils.h"
 #include "src/turbomind/utils/logger.h"
 
@@ -183,7 +183,7 @@ void UnifiedAttentionLayer::Forward(ForwardParam p)
     const size_t layer_offset = layer_id * 2 * local_kv_head_num_ * param_.cache_block_seq_len * size_per_head_;
 
     Tensor qkv;
-
+	
     if (weights.qkv.output_dim) {
         // [token_num, hidden_dim] -> [token_num, local_q_kv_head_num, head_dim]
         qkv = linear_.forward(p.input, weights.qkv, LlamaLinear::kGemm);
@@ -199,9 +199,12 @@ void UnifiedAttentionLayer::Forward(ForwardParam p)
 
     TM_DEBUG_TENSOR(qkv, Concat("qkv", layer_id), 3);
 
+    // TODO(Alan): currently, for qwen gqa attention not fused quant kernel
+    bool fuse_attention_quant = (local_head_num_ == local_kv_head_num_) && weights.quant_mode.isFP8Static();
+
     auto invoke = [&](auto t) -> Tensor {
         using T = decltype(t);
-        return core_attention<T>(qkv, p, weights);
+        return core_attention<T>(qkv, p, weights, fuse_attention_quant);
     };
 
     Tensor attn = [&]() -> Tensor { TM_DISPATCH_PRIMARY_DTYPES_RET(qkv.dtype(), invoke); }();
@@ -210,12 +213,39 @@ void UnifiedAttentionLayer::Forward(ForwardParam p)
 
     //////////////////////////////////////////////
     /// output gemm <Bs,HD> -> <Bs,HD>
-    (void)linear_.forward(attn, weights.output, LlamaLinear::kGemm, p.output);
+    //
+    // clang-format off
+#ifdef ENABLE_FP8
+    if (!fuse_attention_quant && weights.quant_mode.isFP8Static()) 
+    {
+        // NOTE(Alan): FP8 model, convert FP16 activation to FP8
+        auto invoke = [&](auto t) {
+            using T = decltype(t);
+            invokeScaleFP8QuantMatrix<T, QUANTIZE_MODE::PER_TENSOR>(p.fp8_buffer.data<fp8_e4m3_t>(),
+                                                                    weights.output.input_scale_inv.data<float>(),
+                                                                    attn.data<T>(),
+                                                                    token_num,
+                                                                    token_num * weights.output.input_dim,
+                                                                    stream_);
+        };
+
+        TM_DISPATCH_DTYPES(model_param_.data_type, invoke, half_t, bfloat16_t);
+        (void)linear_.forward(p.fp8_buffer, weights.output, LlamaLinear::kGemm, p.output);
+    }
+    else
+#endif
+    {
+        (void)linear_.forward(attn, weights.output, LlamaLinear::kGemm, p.output);
+    }
     sync_check_cuda_error();
+    // clang-format on
 }
 
 template<class T>
-Tensor UnifiedAttentionLayer::core_attention(Tensor& qkv, const ForwardParam& p, const WeightType& weights)
+Tensor UnifiedAttentionLayer::core_attention(Tensor&             qkv,
+                                             const ForwardParam& p,
+                                             const WeightType&   weights,
+                                             bool                fuse_attention_quant)
 {
     const auto device = qkv.device();
     const auto dtype  = qkv.dtype();
@@ -227,10 +257,11 @@ Tensor UnifiedAttentionLayer::core_attention(Tensor& qkv, const ForwardParam& p,
 
     const int local_q_kv_head_num = local_head_num_ + 2 * local_kv_head_num_;
 
-    Tensor attn{{q_count, (int)local_head_num_ * (int)size_per_head_}, dtype, device};
-    Tensor tmp_kv{{2, (int)local_kv_head_num_, k_count + MAX_CTA_S, (int)size_per_head_}, dtype, device};
+    DataType attn_dtype = fuse_attention_quant ? DataType::kFloat8_e4m3 : dtype;
 
-    auto stream_ptr = streams_.data();
+    Tensor attn{{q_count, (int)local_head_num_ * (int)size_per_head_}, attn_dtype, device};
+
+    Tensor tmp_kv{{2, (int)local_kv_head_num_, k_count + MAX_CTA_S, (int)size_per_head_}, dtype, device};
 
     auto CreateParams = [&](int offset, int batch_size, int max_kv_splits, cudaStream_t stream) {
         AttentionParams<T> params{};
@@ -306,6 +337,13 @@ Tensor UnifiedAttentionLayer::core_attention(Tensor& qkv, const ForwardParam& p,
         params.stream = stream;
 
         params.quant_policy = model_param_.quant_policy;
+        params.fuse_attention_quant = fuse_attention_quant;
+#ifdef ENABLE_FP8
+        // NOTE(Alan): 只有当Static PerTensor FP8的时候需要进行dequant kernel fused
+        if (weights.output.weight_type == kFloat8_e4m3 && weights.output.quant_mode.isFP8Static()) {
+            params.fp8_qscale = *(weights.output.host_input_scale_inv.data<float>());
+        }
+#endif
         return params;
     };
 
@@ -352,7 +390,12 @@ Tensor UnifiedAttentionLayer::core_attention(Tensor& qkv, const ForwardParam& p,
 
     if (isTuning()) {
         rng_.set_stream(stream_);
-        rng_.GenerateUniform(attn.data<T>(), attn.size(), .02f, -.01f);
+        if (fuse_attention_quant) {
+            rng_.GenerateUniform(attn.data<fp8_e4m3_t>(), attn.size(), .02f, -.01f);
+        }
+        else {
+            rng_.GenerateUniform(attn.data<T>(), attn.size(), .02f, -.01f);
+        }
     }
 
     return attn;

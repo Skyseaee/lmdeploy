@@ -25,16 +25,15 @@ cublasFP8MMWrapper::cublasFP8MMWrapper(cublasLtHandle_t cublaslt_handle,
                                        cudaStream_t     stream,
                                        cublasAlgoMap*   cublas_algo_map,
                                        std::mutex*      mu,
-                                       IAllocator*      allocator):
-    cublasMMWrapper(nullptr, cublaslt_handle, stream, cublas_algo_map, mu, allocator)
+                                       void*            cublas_workspace,
+                                       void*            cublas_workspace_qgemm):
+    cublasMMWrapper(nullptr, cublaslt_handle, stream, cublas_algo_map, mu, cublas_workspace)
 {
     TM_LOG_DEBUG(__PRETTY_FUNCTION__);
-    FT_CHECK_WITH_INFO(allocator != nullptr, "must pass allocator to cublasFP8MMWrapper");
+    FT_CHECK_WITH_INFO(cublas_workspace != nullptr, "must pass cublas_workspace to cublasFP8MMWrapper");
     cublasVersionCheck();
 
-    if (allocator_ != nullptr) {
-        cublas_workspace_qgemm_ = allocator_->reMalloc(cublas_workspace_qgemm_, CUBLAS_WORKSPACE_1MB, true);
-    }
+    cublas_workspace_qgemm_ = cublas_workspace_qgemm;
 }
 
 cublasFP8MMWrapper::cublasFP8MMWrapper(cublasHandle_t   cublas_handle,
@@ -42,36 +41,21 @@ cublasFP8MMWrapper::cublasFP8MMWrapper(cublasHandle_t   cublas_handle,
                                        cudaStream_t     stream,
                                        cublasAlgoMap*   cublas_algo_map,
                                        std::mutex*      mu,
-                                       IAllocator*      allocator):
-    cublasMMWrapper(cublas_handle, cublaslt_handle, stream, cublas_algo_map, mu, allocator)
+                                       void*            cublas_workspace,
+                                       void*            cublas_workspace_qgemm):
+    cublasMMWrapper(cublas_handle, cublaslt_handle, stream, cublas_algo_map, mu, cublas_workspace)
 {
     TM_LOG_DEBUG(__PRETTY_FUNCTION__);
-    FT_CHECK_WITH_INFO(allocator != nullptr, "must pass allocator to cublasFP8MMWrapper");
+    FT_CHECK_WITH_INFO(cublas_workspace != nullptr, "must pass cublas_workspace to cublasFP8MMWrapper");
     cublasVersionCheck();
-    if (allocator_ != nullptr) {
-        cublas_workspace_qgemm_ = allocator_->reMalloc(cublas_workspace_qgemm_, CUBLAS_WORKSPACE_1MB, true);
-    }
+
+    cublas_workspace_qgemm_ = cublas_workspace_qgemm;
 }
 
 cublasFP8MMWrapper::~cublasFP8MMWrapper()
 {
     TM_LOG_DEBUG(__PRETTY_FUNCTION__);
     mu_ = nullptr;
-    if (allocator_ != nullptr) {
-        allocator_->free((void**)(&cublas_workspace_qgemm_));
-    }
-}
-
-cublasFP8MMWrapper::cublasFP8MMWrapper(const cublasFP8MMWrapper& wrapper):
-    cublasMMWrapper(wrapper.cublas_handle_,
-                    wrapper.cublaslt_handle_,
-                    wrapper.stream_,
-                    wrapper.cublas_algo_map_,
-                    wrapper.mu_,
-                    wrapper.allocator_)
-{
-    TM_LOG_DEBUG(__PRETTY_FUNCTION__);
-    cublasVersionCheck();
 }
 
 void cublasFP8MMWrapper::cublasVersionCheck()

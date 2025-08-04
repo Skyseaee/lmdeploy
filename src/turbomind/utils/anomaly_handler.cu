@@ -279,9 +279,9 @@ struct AnomalyHandler::Impl {
                                                                        size,
                                                                        ptr,
                                                                        ptr + 1,
-                                                                       g_pinf_val_,
-                                                                       g_ninf_val_,
-                                                                       g_nan_val_);
+                                                                       T(g_pinf_val_),
+                                                                       T(g_ninf_val_),
+                                                                       T(g_nan_val_));
 
             sync_check_cuda_error();
         }
@@ -374,6 +374,9 @@ template void AnomalyHandler::CountAndFix(float*, int64_t, std::string, int);
 template void AnomalyHandler::CountAndFix(half*, int64_t, std::string, int);
 #ifdef ENABLE_BF16
 template void AnomalyHandler::CountAndFix(__nv_bfloat16*, int64_t, std::string, int);
+#endif
+#ifdef ENABLE_FP8
+template void AnomalyHandler::CountAndFix(__nv_fp8_e4m3*, int64_t, std::string, int);
 #endif
 
 template<class T>

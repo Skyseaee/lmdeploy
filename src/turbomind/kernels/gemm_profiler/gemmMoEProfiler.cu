@@ -18,7 +18,7 @@
 #include <numeric>
 #include <cutlass/util/reference/device/tensor_fill.h>
 
-#include "src/turbomind/kernels/fused_gated_gemm/gemm_configs.h"
+#include "src/turbomind/kernels/cutlass_extensions/include/cutlass_extensions/gemm_configs.h"
 #include "src/turbomind/kernels/gemm_profiler/gemmMoEProfiler.h"
 
 using tensorrt_llm::plugins::MixtureOfExpertsGemmProfiler;
@@ -27,11 +27,11 @@ void MixtureOfExpertsGemmProfiler::initTmpData(int m, int n, int k, char* worksp
 {
     size_t bpe = getBytePerElement(mType);
 
-    if (mType == turbomind::DataType::TYPE_FP8_E4M3)
+    if (mType == turbomind::DataType::kFloat8_e4m3)
     {
         // set random data to input data
         // just input and weight
         cutlass::reference::device::BlockFillRandomUniform(reinterpret_cast<cutlass::float_e4m3_t*>(workspace),
-            m * k + 2 * n * k * m_expert_num + n * k * m_expert_num, 42, cutlass::float_e4m3_t{128}, -cutlass::float_e4m3_t{128}, -1, stream);
+            m * k + 2 * n * k * m_expert_num + n * k * m_expert_num, 42, cutlass::float_e4m3_t{128}, -cutlass::float_e4m3_t{128}, -1, 0, stream);
     }
 }

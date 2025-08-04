@@ -15,13 +15,16 @@
 cmake_minimum_required(VERSION 3.11 FATAL_ERROR) # for PyTorch extensions, version should be greater than 3.13
 project(TurboMind LANGUAGES CXX CUDA)
 
-find_package(CUDA 10.2 REQUIRED)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/utils.cmake)
 
 if (MSVC)
     # use standard conformant preprocessor
     add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/Zc:preprocessor>)
     set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Xcompiler=/Zc:preprocessor")
 endif ()
+
+find_package(CUDA REQUIRED)
+include_directories(${CUDA_INCLUDE_DIRS})
 
 find_package(CUDAToolkit REQUIRED)
 
@@ -31,33 +34,16 @@ endif()
 
 # NOTE(Alan): FP8 support
 option(ENABLE_FP8 "ENABLE_FP8" OFF)
-option(CUTLASS_FP8 "CUTLASS_FP8" OFF)
-option(FUSED_GATED_GEMM "FUSED_GATED_GEMM" OFF)
-option(FUSED_MOE_FFN_GEMM "FUSED_MOE_FFN_GEMM" OFF)
-message(STATUS "CUDA Version: ${CUDA_VERSION_MAJOR}.${CUDA_VERSION_MINOR}")
 
-if(ENABLE_FP8)
-  if((${CUDA_VERSION_MAJOR} VERSION_GREATER_EQUAL "11" AND ${CUDA_VERSION_MINOR} VERSION_GREATER_EQUAL "8") OR(${CUDA_VERSION_MAJOR} VERSION_GREATER_EQUAL "12"))
-    add_definitions("-DENABLE_FP8")
-    message("CUDA_VERSION ${CUDA_VERSION_MAJOR}.${CUDA_VERSION_MINOR} is greater or equal than 11.8, enable -DENABLE_FP8 flag")
-  endif()
+# NOTE(Meng): Add OSS Cutlass moe gemm kernel compile
+option(USING_OSS_CUTLASS_MOE_GEMM "Using open sourced Cutlass moe gemm kernel" ON)
 
-  if((${CUDA_VERSION_MAJOR} VERSION_GREATER_EQUAL "12") AND CUTLASS_FP8)
-    add_definitions("-DCUTLASS_FP8")
-    message("CUDA_VERSION ${CUDA_VERSION_MAJOR}.${CUDA_VERSION_MINOR} is greater or equal than 12 or CUTLASS_FP8 Flag is ${CUTLASS_FP8}, enable -DCUTLASS_FP8 flag")
-  endif()
-
-  if((${CUDA_VERSION_MAJOR} VERSION_GREATER_EQUAL "12") AND FUSED_GATED_GEMM)
-    add_definitions("-DFUSED_GATED_GEMM")
-    add_definitions("-DCOMPILE_HOPPER_TMA_GEMMS")
-    message("CUDA_VERSION ${CUDA_VERSION_MAJOR}.${CUDA_VERSION_MINOR} is greater or equal than 12 or FUSED_GATED_GEMM Flag is ${FUSED_GATED_GEMM}, enable -DFUSED_GATED_GEMM flag")
-  endif()
-
-  if((${CUDA_VERSION_MAJOR} VERSION_GREATER_EQUAL "12") AND FUSED_MOE_FFN_GEMM)
-    add_definitions("-DFUSED_MOE_FFN_GEMM")
-    message("CUDA_VERSION ${CUDA_VERSION_MAJOR}.${CUDA_VERSION_MINOR} is greater or equal than 12 or FUSED_MOE_FFN_GEMM Flag is ${FUSED_MOE_FFN_GEMM}, enable -DFUSED_MOE_FFN_GEMM flag")
-  endif()
-
+if(ENABLE_FP8 AND(${CMAKE_CUDA_COMPILER_VERSION} VERSION_GREATER_EQUAL "11" AND ${CMAKE_CUDA_COMPILER_VERSION} VERSION_GREATER_EQUAL "8") OR(${CMAKE_CUDA_COMPILER_VERSION} VERSION_GREATER_EQUAL "12"))
+  add_definitions("-DENABLE_FP8")
+  add_definitions("-DCUTLASS_FP8")
+  add_definitions("-DFUSED_GATED_GEMM")
+  add_definitions("-DCOMPILE_HOPPER_TMA_GEMMS")
+  add_definitions("-DFUSED_MOE_FFN_GEMM")
 endif()
 
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/Modules)
@@ -79,25 +65,40 @@ if (BUILD_TEST)
   FetchContent_MakeAvailable(Catch2)
 endif()
 
-# The current FP8 Gemm Hopper-based conflicts with the cutalss version that flash attention originally relied on
-if(BUILD_TEST OR CUTLASS_FP8 OR FUSED_GATED_GEMM OR FUSED_MOE_FFN_GEMM)
-  FetchContent_Declare(
-    repo-cutlass
-    GIT_REPOSITORY https://github.com/NVIDIA/cutlass.git
+# The current FP8 Gemm Hopper-based conflicts with the cutalss version that lmdeploy gemm originally relied on
+FetchContent_Declare(
+  repo-cutlass
+  GIT_REPOSITORY https://github.com/NVIDIA/cutlass.git
+  GIT_TAG v4.0.0
+  GIT_SHALLOW OFF
+)
 
-    # GIT_TAG        6f47420213f757831fae65c686aa471749fa8d60   # FALSH ATTENTION2
-    GIT_TAG v3.9.2 # f7b19de32c5d1f3cedfc735c2849f12b537522ee # CUTLASS 3.x support FP8 Gemm
-    GIT_SHALLOW ON
-  )
+set(CUTLASS_ENABLE_HEADERS_ONLY ON CACHE BOOL "Enable only the header library")
 
-  set(CUTLASS_ENABLE_HEADERS_ONLY ON CACHE BOOL "Enable only the header library")
+FetchContent_MakeAvailable(repo-cutlass)
 
-  FetchContent_MakeAvailable(repo-cutlass)
+set(CUTLASS_TOOLS_HEAD_DIR ${CUTLASS_DIR}/tools/util/include)
+set(CUTLASS_HEADER_DIR ${CUTLASS_DIR}/include)
+set(CUTLASS_EXTENSIONS_DIR ${PROJECT_SOURCE_DIR}/src/turbomind/kernels/cutlass_extensions/include)
 
-  set(CUTLASS_TOOLS_HEAD_DIR ${CUTLASS_DIR}/tools/util/include)
-  set(CUTLASS_HEADER_DIR ${CUTLASS_DIR}/include)
-  set(CUTLASS_EXTENSIONS_DIR ${PROJECT_SOURCE_DIR}/src/turbomind/kernels/cutlass_extensions/include)
+execute_process(
+  COMMAND git checkout 8206e7a0f57a9a057cdd2c3bb4899bd5154a82e1
+  WORKING_DIRECTORY ${CUTLASS_DIR}
+  OUTPUT_VARIABLE GIT_CHECKOUT_OUTPUT
+  ERROR_VARIABLE GIT_CHECKOUT_ERROR
+  RESULT_VARIABLE GIT_CHECKOUT_RESULT
+)
+
+# 检查 git checkout 是否成功
+if(GIT_CHECKOUT_RESULT EQUAL 0)
+  message(STATUS "Successfully checked out commit 8206e7a0f57a9a057cdd2c3bb4899bd5154a82e1")
+else()
+  message(FATAL_ERROR "Failed to checkout commit 8206e7a0f57a9a057cdd2c3bb4899bd5154a82e1: ${GIT_CHECKOUT_ERROR}")
 endif()
+
+set(CUTLASS_TOOLS_HEAD_DIR ${CUTLASS_DIR}/tools/util/include)
+set(CUTLASS_HEADER_DIR ${CUTLASS_DIR}/include)
+set(CUTLASS_EXTENSIONS_DIR ${PROJECT_SOURCE_DIR}/src/turbomind/kernels/cutlass_extensions/include)
 
 FetchContent_Declare(
   yaml-cpp
@@ -159,18 +160,22 @@ set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Xcompiler -Wall -ldl") # -Xptxas -v
 
 # TODO: build for sm_72 & sm_87 on aarch64 platform (Jetson devices)
 if (NOT CMAKE_CUDA_ARCHITECTURES)
-  set(CMAKE_CUDA_ARCHITECTURES 70-real 75-real)
+  set(CMAKE_CUDA_ARCHITECTURES 70-real 75-real) # V100, 2080
   if (${CMAKE_CUDA_COMPILER_VERSION} VERSION_GREATER_EQUAL "11")
-    list(APPEND CMAKE_CUDA_ARCHITECTURES 80-real)
+    list(APPEND CMAKE_CUDA_ARCHITECTURES 80-real) # A100
   endif ()
   if (${CMAKE_CUDA_COMPILER_VERSION} VERSION_GREATER_EQUAL "11.1")
-    list(APPEND CMAKE_CUDA_ARCHITECTURES 86-real)
+    list(APPEND CMAKE_CUDA_ARCHITECTURES 86-real) # 3090
   endif ()
   if (${CMAKE_CUDA_COMPILER_VERSION} VERSION_GREATER_EQUAL "11.8")
-    list(APPEND CMAKE_CUDA_ARCHITECTURES 89-real)
+    list(APPEND CMAKE_CUDA_ARCHITECTURES 89-real) # 4090
   endif ()
   if (${CMAKE_CUDA_COMPILER_VERSION} VERSION_GREATER_EQUAL "12.0")
-    list(APPEND CMAKE_CUDA_ARCHITECTURES 90a-real)
+    list(APPEND CMAKE_CUDA_ARCHITECTURES 90a-real) # H100
+  endif()
+
+  if(${CMAKE_CUDA_COMPILER_VERSION} VERSION_GREATER_EQUAL "12.8")
+    list(APPEND CMAKE_CUDA_ARCHITECTURES 120a-real) # 5090
   endif ()
   if (MSVC)
     list(REMOVE_ITEM CMAKE_CUDA_ARCHITECTURES 80-real 90a-real)
@@ -178,6 +183,9 @@ if (NOT CMAKE_CUDA_ARCHITECTURES)
 endif ()
 
 message(STATUS "Building with CUDA archs: ${CMAKE_CUDA_ARCHITECTURES}")
+
+set(CMAKE_CUDA_ARCHITECTURES_ORIG "${CMAKE_CUDA_ARCHITECTURES}")
+message(STATUS "GPU architectures: ${CMAKE_CUDA_ARCHITECTURES_ORIG}")
 
 set(CMAKE_CUDA_RUNTIME_LIBRARY Shared)
 set(CMAKE_C_FLAGS_DEBUG    "${CMAKE_C_FLAGS_DEBUG}    -Wall -O0")
@@ -274,138 +282,4 @@ if (BUILD_PY_FFI)
   install(TARGETS _turbomind DESTINATION ${CMAKE_SOURCE_DIR}/lmdeploy/lib)
 endif ()
 
-if (MSVC)
-  return()
-endif ()
-
-# # Mesaure the compile time
-option(MEASURE_BUILD_TIME "Measure the build time of each module" OFF)
-if (MEASURE_BUILD_TIME)
-  set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "${CMAKE_COMMAND} -E time")
-  set_property(GLOBAL PROPERTY RULE_LAUNCH_CUSTOM "${CMAKE_COMMAND} -E time")
-  set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK "${CMAKE_COMMAND} -E time")
-endif()
-
-# #######################################
-add_library(transformer-shared SHARED
-  $<TARGET_OBJECTS:DynamicDecodeLayer>
-  $<TARGET_OBJECTS:Llama>
-  $<TARGET_OBJECTS:LlamaTritonBackend>
-#  $<TARGET_OBJECTS:TransformerTritonBackend>
-  $<TARGET_OBJECTS:activation_kernels>
-  $<TARGET_OBJECTS:ban_bad_words>
-#  $<TARGET_OBJECTS:cublasAlgoMap>
-#  $<TARGET_OBJECTS:cublasMMWrapper>
-  $<TARGET_OBJECTS:cuda_utils>
-#  $<TARGET_OBJECTS:custom_ar_comm>
-#  $<TARGET_OBJECTS:custom_ar_kernels>
-  $<TARGET_OBJECTS:attention>
-  $<TARGET_OBJECTS:decoding_kernels>
-  $<TARGET_OBJECTS:gpt_kernels>
-  $<TARGET_OBJECTS:logprob_kernels>
-  $<TARGET_OBJECTS:logger>
-  $<TARGET_OBJECTS:memory_utils>
-#  $<TARGET_OBJECTS:mpi_utils>
-#  $<TARGET_OBJECTS:nccl_utils>
-  $<TARGET_OBJECTS:nvtx_utils>
-  $<TARGET_OBJECTS:anomaly_handler>
-  $<TARGET_OBJECTS:sampling_penalty_kernels>
-  $<TARGET_OBJECTS:sampling_topk_kernels>
-  $<TARGET_OBJECTS:sampling_topp_kernels>
-  $<TARGET_OBJECTS:stop_criteria>
-#  $<TARGET_OBJECTS:tensor>
-  $<TARGET_OBJECTS:unfused_attention_kernels>
-#  $<TARGET_OBJECTS:rng_utils>
-  $<TARGET_OBJECTS:rms_norm>
-)
-
-#if(ENABLE_FP8)
-#  target_link_libraries(transformer-shared PUBLIC
-#    $<TARGET_OBJECTS:cublasFP8MMWrapper>
-#    $<TARGET_OBJECTS:cuda_fp8_utils>
-#  )
-#endif()
-#
-#if(CUTLASS_FP8)
-#  target_link_libraries(transformer-shared PUBLIC
-#    $<TARGET_OBJECTS:cutlass_w8a8>
-#  )
-#endif()
-#
-#if(FUSED_GATED_GEMM)
-#  target_link_libraries(transformer-shared PUBLIC
-#    $<TARGET_OBJECTS:fused_gated_gemm>
-#    $<TARGET_OBJECTS:gemm_profiler>
-#  )
-#endif()
-#
-#if(FUSED_MOE_FFN_GEMM)
-#  target_link_libraries(transformer-shared PUBLIC
-#    $<TARGET_OBJECTS:mixture_of_experts>
-#    $<TARGET_OBJECTS:gemm_profiler>
-#  )
-#endif()
-
-if (BUILD_MULTI_GPU)
-target_link_libraries(transformer-shared PUBLIC
-  ${MPI_CXX_LIBRARIES}
-  ${NCCL_LIBRARIES}
-)
-endif()
-
-if(USE_NVTX)
-target_link_libraries(transformer-shared PUBLIC
-  -lnvToolsExt
-)
-endif()
-
-set_target_properties(transformer-shared PROPERTIES POSITION_INDEPENDENT_CODE ON)
-set_target_properties(transformer-shared PROPERTIES CUDA_RESOLVE_DEVICE_SYMBOLS ON)
-set_target_properties(transformer-shared PROPERTIES LINKER_LANGUAGE CXX)
-target_link_libraries(transformer-shared PUBLIC -lcudart -lcublas -lcublasLt -lcurand)
-
-include(GNUInstallDirs)
-set(INSTALL_CONFIGDIR ${CMAKE_INSTALL_LIBDIR}/cmake/TurboMind)
-
-include(CMakePackageConfigHelpers)
-configure_package_config_file(
-  ${CMAKE_CURRENT_LIST_DIR}/cmake/TurboMindConfig.cmake.in
-  ${CMAKE_CURRENT_BINARY_DIR}/TurboMindConfig.cmake
-  INSTALL_DESTINATION ${INSTALL_CONFIGDIR}
-)
-
-install(
-  FILES
-  ${CMAKE_CURRENT_BINARY_DIR}/TurboMindConfig.cmake
-  DESTINATION ${INSTALL_CONFIGDIR}
-)
-
-install(
-  TARGETS
-    transformer-shared
-  EXPORT
-    transformer-shared-targets
-  LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/backends/turbomind
-  ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/backends/turbomind
-  RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/bin
-)
-
-install(
-  EXPORT
-    transformer-shared-targets
-  FILE
-    TurboMindTargets.cmake
-  DESTINATION
-    ${INSTALL_CONFIGDIR}
-)
-
-export(
-  EXPORT
-    transformer-shared-targets
-  FILE
-    ${CMAKE_CURRENT_BINARY_DIR}/TurboMindTargets.cmake
-  NAMESPACE
-    TritonCore::
-)
-
-export(PACKAGE TurboMind)
+# add_subdirectory(examples/cpp)

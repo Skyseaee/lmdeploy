@@ -61,6 +61,7 @@ private:
 
     DataType data_type_;
     DataType weight_type_;
+    QuantMode quant_mode_;
 
     int tp_size_;  // this will follow attn tp param
     int tp_rank_;

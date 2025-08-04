@@ -75,6 +75,7 @@ LlamaV2::LlamaV2(DataType                     dtype,
     rmsnorm_eps_(model.norm_eps),
     local_head_num_(model.head_num / engine.attn_tp_size),
     local_kv_head_num_(model.kv_head_num / engine.attn_tp_size),
+    max_expert_num_(moe.expert_num.empty() ? 0 : *std::max_element(moe.expert_num.begin(), moe.expert_num.end())),
     weights_(std::move(weights)),
     stream_(ctx.stream),
     linear_(*ctx.linear),
@@ -165,6 +166,9 @@ void LlamaV2::Forward(Buffer_<int>     input_ids,
                       Buffer           finished,
                       Buffer           local_token_nums,
                       Buffer           lora_mask,
+                      Tensor           moe_fp8_buf,
+                      Tensor           moe_fp16_buf,
+                      Tensor           moe_gate_fp32_buf,
                       int              decode_num,
                       int              prefil_num,
                       const Sequence** sequences)
@@ -259,7 +263,10 @@ void LlamaV2::Forward(Buffer_<int>     input_ids,
                    {"rope_base", rope_base},
                    {"cu_block_nums", cu_block_nums},
                    {"kv_block_ptrs", kv_block_ptrs},
-                   {"local_token_nums", local_token_nums}};
+                   {"local_token_nums", local_token_nums},
+                   {"moe_fp8_buf", moe_fp8_buf},
+                   {"moe_fp16_buf", moe_fp16_buf},
+                   {"moe_gate_fp32_buf", moe_gate_fp32_buf}};
 
     unified_decoder_->Forward(args, weights_->decoder_layer_weights);
 }

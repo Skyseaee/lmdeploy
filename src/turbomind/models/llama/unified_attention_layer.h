@@ -47,6 +47,7 @@ public:
         Tensor            output;
         const WeightType* weights;
         int               layer_id;
+        Tensor            fp8_buffer;
     };
 
     ~UnifiedAttentionLayer();
@@ -74,7 +75,7 @@ private:
 
     /// TODO: dropping the `T` here requires deep refactor of attention dispatch
     template<class T>
-    Tensor core_attention(Tensor& qkv, const ForwardParam& p, const WeightType& weights);
+    Tensor core_attention(Tensor& qkv, const ForwardParam& p, const WeightType& weights, bool fused_quant_output);
 
     void qk_norm(Tensor& qkv, const WeightType& weights);
 
@@ -135,6 +136,7 @@ private:
 
     Buffer_<int>       cu_block_nums_;
     Buffer_<uintptr_t> kv_block_ptrs_;
+
     ///////////////////////////////////////////////////////
 };
 

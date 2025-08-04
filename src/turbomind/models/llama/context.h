@@ -32,12 +32,18 @@ struct Context {
     std::unique_ptr<LlamaLinear> linear;
     cudaDeviceProp               device_prop;
     Communicators                comm;  // initialize later
+    ModelParam                   model;
+    EngineParam                  engine;
+    MoeParam                     moe;
 
-    Context(int device_id):
+    Context(int device_id, const EngineParam& engine, const ModelParam& model, const MoeParam& moe):
         core_stream{core::Stream::create()},
         allocator{core::Allocator(core_stream, false)},
         stream{core_stream.handle()},
-        linear{std::make_unique<LlamaLinear>(stream)}
+        model(model),
+        engine(engine),
+        moe(moe),
+        linear{std::make_unique<LlamaLinear>(stream, model, engine, moe)}
     {
         check_cuda_error(cudaGetDeviceProperties(&device_prop, device_id));
     }

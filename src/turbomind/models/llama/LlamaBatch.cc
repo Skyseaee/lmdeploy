@@ -286,6 +286,8 @@ void LlamaBatch::ProcessInferRequests(const Requests& reqs, std::vector<Signal>&
             // TODO: truncate prompt to enable prefix caching for VLM
             seq.prompt.resize(input_length);
             std::copy_n(input_ids, input_length, seq.prompt.data());
+            // NOTE(Alan): input_idx memory type with
+            // Copy(input_ids, input_length, seq.prompt.data());
         }
 
         const int elem_size = byte_size(data_type_);
@@ -776,12 +778,20 @@ void LlamaBatch::AllocSymmBuffers()
 
     symm_hidden_states_buf_ = {{max_forward_token_num_ * param_.attn_dp_size, hidden_units}, data_type_, symm_alloc_};
     symm_logits_buf_        = {{max_batch_size_, vocab_size_padded}, data_type_, symm_alloc_};
+
+    symm_moe_fp8_buf_       = {{max_forward_token_num_ * param_.attn_dp_size, hidden_units}, DataType::kFloat8_e4m3, symm_alloc_};
+    symm_moe_fp16_buf_      = {{max_forward_token_num_ * param_.attn_dp_size, hidden_units}, data_type_, symm_alloc_};
+    symm_moe_gate_fp32_buf_ = {{max_forward_token_num_, model_->max_expert_num_}, DataType::kFloat32, symm_alloc_};
 }
 
 void LlamaBatch::FreeSymmBuffers()
 {
     symm_hidden_states_buf_ = {};
     symm_logits_buf_        = {};
+
+    symm_moe_fp8_buf_       = {};
+    symm_moe_fp16_buf_      = {};
+    symm_moe_gate_fp32_buf_ = {};
 }
 
 LlamaBatch::~LlamaBatch()
@@ -830,7 +840,13 @@ LlamaBatch::LlamaBatch(DataType                 data_type,
     const int dbits = byte_size(data_type, 8);
 
     const auto quant_policy = model_->param_.quant_policy;
-    const int  elem_bits    = quant_policy ? quant_policy : dbits;
+    int        elem_bits    = quant_policy ? quant_policy : dbits;
+    // NOTE(Alan): 16 means kv fp8 static quant;
+    //             32 means kv fp8 dynamic quant
+    if (quant_policy == 16 || quant_policy == 32)
+        elem_bits = 8;
+
+    // profile_run();
 
     SequenceManager::BlockConfig block_config{
         (int)model_->size_per_head_,
@@ -1343,7 +1359,7 @@ void LlamaBatch::InternalThreadEntry()
             FindCanceledIndices(req->cancel);
         }
 
-        NvtxScope scope("mainloop");
+        NvtxScope scope("mainloop_bs_" + std::to_string(state_->active_size - g.finished_count));
 
         // 1. Wait while rank-0 is dequeueing
         // 2. Broadcast `ec` from rank-0
@@ -1419,6 +1435,7 @@ bool LlamaBatch::Forward(GenerationState& g)
 {
     NvtxScope _("Forward");
 
+    // TODO(Alan): 如果只输出一个token，会有问题，需要fix
     FT_CHECK(max_context_token_num_ >= max_batch_size_);
 
     const int active_size = state_->active_size;
@@ -1528,6 +1545,9 @@ bool LlamaBatch::Forward(GenerationState& g)
 
         auto hidden_states = symm_hidden_states_buf_.slice(0, global_token_num);
 
+        auto moe_fp8_buf  = symm_moe_fp8_buf_.slice(0, global_token_num);
+        auto moe_fp16_buf = symm_moe_fp16_buf_.slice(0, global_token_num);
+
         model_->Forward(input_ids_buf_.slice(0, sum_q),  // temp
                         hidden_states,                   // temp
                         decoder_output_buf_.slice(first, mini_batch_size),
@@ -1539,6 +1559,9 @@ bool LlamaBatch::Forward(GenerationState& g)
                         finished_buf_.slice(first, mini_batch_size),
                         Buffer(local_token_nums.data(), local_token_nums.size(), kCPU),
                         lora_mask_buf_,
+                        moe_fp8_buf,
+                        moe_fp16_buf,
+                        symm_moe_gate_fp32_buf_,
                         dc_batch_size,
                         pf_batch_size,
                         state_->sequences.data() + first);
@@ -1682,6 +1705,10 @@ void LlamaBatch::Warmup()
     // remove bs that is too large
     bss.erase(std::remove_if(bss.begin(), bss.end(), [&](auto x) { return x > max_forward_token_num_; }), bss.end());
 
+    if (bss.empty() || bss.back() < max_forward_token_num_) {
+        bss.push_back(max_forward_token_num_);
+    }
+
     if (tp_rank_ == 0) {
         auto str = Join(bss.begin(), bss.end(), ", ");
         TM_LOG_INFO("[Gemm2] Tuning sequence: %s", str.c_str());
@@ -1689,13 +1716,14 @@ void LlamaBatch::Warmup()
 
     if (!bss.empty()) {
         const auto                         max_bs = *std::max_element(bss.begin(), bss.end());
-        std::vector<int>                   input_ids(max_bs);
+        Buffer_<int>                       input_ids(max_bs, kCPU);
+        Buffer_<int>                       input_ids_buf(max_bs, kDEVICE);
         std::mt19937                       g{};
         std::uniform_int_distribution<int> d{0, (int)model_->vocab_size_ - 1};
         for (auto& x : input_ids) {
             x = d(g);
         }
-        core::Copy(input_ids.data(), max_bs, input_ids_buf_.data());
+        core::Copy(input_ids.data(), max_bs, input_ids_buf.data());
         check_cuda_error(cudaStreamSynchronize(stream_));
 
         TuningContext context{linear, stream_};
@@ -1714,7 +1742,7 @@ void LlamaBatch::Warmup()
             const auto bsz = 1;
 
             // A single sequence containing `token_num` prefill tokens
-            model_->Forward(input_ids_buf_.slice(0, token_num),
+            model_->Forward(input_ids_buf.slice(0, token_num),
                             symm_hidden_states_buf_.slice(0, token_num * param_.attn_dp_size),
                             decoder_output_buf_.slice(0, bsz),
                             block_ptrs_,
@@ -1725,6 +1753,9 @@ void LlamaBatch::Warmup()
                             finished_buf_.slice(0, bsz),
                             Buffer{local_token_nums.data(), (int)local_token_nums.size(), kCPU},
                             Buffer{},
+                            symm_moe_fp8_buf_.slice(0, token_num * param_.attn_dp_size),
+                            symm_moe_fp16_buf_.slice(0, token_num * param_.attn_dp_size),
+                            symm_moe_gate_fp32_buf_,
                             0,
                             bsz,
                             nullptr);
@@ -1795,5 +1826,50 @@ void LlamaBatch::DestroyCommunicators()
     cudaStreamSynchronize(stream_);
     comm_.h_comm->Sync();
 }
+
+/*
+void LlamaBatch::profile_run()
+{
+    TM_LOG_INFO("[profile_run] Start Profiler Max Prefill Token Need Memory.");
+    auto start_free_size = GetSyncFreeMemSize(*shared_state_->barrier, shared_state_->free_size);
+
+    std::vector<int>                   input_ids(max_forward_token_num_);
+    std::mt19937                       g{};
+    std::uniform_int_distribution<int> d{0, (int)model_->vocab_size_ - 1};
+    for (auto& x : input_ids) {
+        x = d(g);
+    }
+    Copy(input_ids.data(), max_forward_token_num_, context_decoder_ids_buf_);
+    check_cuda_error(cudaStreamSynchronize(stream_));
+
+    auto tick = std::chrono::steady_clock::now();
+
+    /// NOTE: No explicit barrier can be used here as internal threads are waiting on it now
+    {
+    
+        const int input_length = max_forward_token_num_;
+        model_->forwardUnified(decoder_output_buf_,
+                                context_decoder_output_buf_,
+                                context_decoder_input_buf_,
+                                (void**)block_ptrs_,  // invalid data
+                                cu_block_counts_,     // invalid data
+                                context_decoder_ids_buf_,
+                                &input_length,
+                                &input_length,
+                                rope_theta_,    // invalid data
+                                finished_buf_,  // invalid data
+                                max_forward_token_num_,
+                                0,
+                                1,
+                                nullptr,
+                                nullptr);
+        // implicit barrier for TP
+        check_cuda_error(cudaStreamSynchronize(stream_));
+    }
+
+    auto finish_free_size = GetSyncFreeMemSize(*shared_state_->barrier, shared_state_->free_size);
+    TM_LOG_INFO("[profile_run] End Profiler Max Prefill Token Need Memory: %d MB.", (finish_free_size - start_free_size) >> 10);
+}
+//*/
 
 }  // namespace turbomind

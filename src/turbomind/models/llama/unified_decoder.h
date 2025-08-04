@@ -22,9 +22,13 @@ public:
                    const LoraParam&      lora,
                    const Context&        ctx);
 
+    ~UnifiedDecoder();
+    
     void Forward(TensorMap& args, const std::vector<WeightType*>& weights);
 
 private:
+    const QuantMode quant_mode_;
+
     const size_t layer_num_;
     const size_t hidden_units_;
 
@@ -46,14 +50,42 @@ private:
     std::unique_ptr<LlamaFfnLayer>         ffn_layer_;
     std::unique_ptr<MoeFfnLayer>           moe_ffn_layer_;
 
-    void AllreduceResidualRMSnorm(Tensor&       hidden_states,
-                                  Tensor&       residual,
-                                  const Tensor& bias,
-                                  const Tensor& weight,
-                                  int           token_num,
-                                  int           t0,
-                                  int           t1,
-                                  const int*    local_token_nums);
+    void AllreduceResidualRMSnorm(Tensor&               hidden_states,
+                                  Tensor&               residual,
+                                  const Tensor&         bias,
+                                  const Tensor&         weight,
+                                  int                   token_num,
+                                  int                   t0,
+                                  int                   t1,
+                                  const int*            local_token_nums,
+                                  std::optional<Tensor> hidden_states_fp8   = {},
+                                  std::optional<Tensor> moe_fp8_buf         = {},
+                                  std::optional<Tensor> moe_fp16_buf        = {},
+                                  float                 shared_expert_scale = 1.0,
+                                  float                 moe_expert_scale    = 1.0);
+
+    void AllreduceResidualRMSnormAndQauntFP8(Tensor&       hidden_states_fp8,
+                                             Tensor&       residual,
+                                             Tensor&       moe_fp8_buf,
+                                             Tensor&       moe_fp16_buf,
+                                             Tensor&       hidden_states,
+                                             const Tensor& bias,
+                                             const Tensor& weight,
+                                             const float   shared_expert_scale,
+                                             const float   moe_expert_scale,
+                                             int           token_num,
+                                             int           t0,
+                                             int           t1,
+                                             const int*    local_token_nums);
+
+private:
+    bool         enable_stream_parallel = true;
+    cudaStream_t shared_expert_stream_;
+    cudaEvent_t  quant_event_;
+    cudaEvent_t  shared_expert_event_;
+
+    Tensor empty_tensor{nullptr, Layout{}, DataType::kFloat32, DeviceType::kDEVICE};
+
 };
 
 }  // namespace turbomind

@@ -15,7 +15,7 @@
 
 namespace turbomind {
 
-template<class Arch_, class Mainloop, class CacheIteratorFactory_, class CtaMap_>
+template<class Arch_, class Mainloop, class CacheIteratorFactory_, class CtaMap_, bool KVFP8Static>
 struct AttentionUniversal {
 
     using T   = typename Mainloop::T;
@@ -256,42 +256,70 @@ struct AttentionUniversal {
             const int qi = offset.y / CTA_H;
             const int ti = history_len;
 
-            Array<T, 2> param_K[1];
-            Array<T, 2> param_V[1];
+            if constexpr (KVFP8Static)
+            {
+                Array<Tkv, kVecSize> out_K[1][ITER_C];
+                Array<Tkv, kVecSize> out_V[1][ITER_C];
 
-            if constexpr (!std::is_same_v<T, Tkv>) {
-                warp_stats<Map::kWarpThreadC>(param_K, vec_K, bitsof<Tkv>);
-                warp_stats<Map::kWarpThreadC>(param_V, vec_V, bitsof<Tkv>);
-            }
+                PRAGMA_UNROLL
+                for (int c = 0; c < ITER_C; ++c) {
+                    out_K[0][c] = ConvertKvCache<T, Tkv>::convert(vec_K[0][c]);
+                    out_V[0][c] = ConvertKvCache<T, Tkv>::convert(vec_V[0][c]);
+                }
 
-            Array<Tkv, kVecSize> out_K[1][ITER_C];
-            Array<Tkv, kVecSize> out_V[1][ITER_C];
-
-            ConvertKvCache<T, Tkv> conv_K{param_K[0][0], param_K[0][1]};
-            ConvertKvCache<T, Tkv> conv_V{param_V[0][0], param_V[0][1]};
-            PRAGMA_UNROLL
-            for (int c = 0; c < ITER_C; ++c) {
-                out_K[0][c] = conv_K(vec_K[0][c]);
-                out_V[0][c] = conv_V(vec_V[0][c]);
-            }
-
-            iterator.block_head_.with(
-                iterator.block_ptrs_, ti, [&](auto k_cache, auto v_cache, T* k_param, T* v_param) {
-                    PRAGMA_UNROLL
-                    for (int c = 0; c < ITER_C; ++c) {
-                        const int di = offset.x + c * Map::kDeltaC;
-                        if (qi < CTA_Q) {
-                            Store(&k_cache[di], out_K[0][c]);
-                            Store(&v_cache[di], out_V[0][c]);
+                iterator.block_head_.with(
+                    iterator.block_ptrs_, ti, [&](auto k_cache, auto v_cache, T* k_param, T* v_param) {
+                        PRAGMA_UNROLL
+                        for (int c = 0; c < ITER_C; ++c) {
+                            const int di = offset.x + c * Map::kDeltaC;
+                            if (qi < CTA_Q) {
+                                Store(&k_cache[di], out_K[0][c]);
+                                Store(&v_cache[di], out_V[0][c]);
+                            }
                         }
                     }
-                    if constexpr (!std::is_same_v<T, Tkv>) {
-                        if (qi < CTA_Q && offset.x == 0) {
-                            StoreQuantParam<Tkv>(k_param, param_K[0]);
-                            StoreQuantParam<Tkv>(v_param, param_V[0]);
+                );
+            }
+            else
+            {
+                Array<T, 2> param_K[1];
+                Array<T, 2> param_V[1];
+
+                if constexpr (!std::is_same_v<T, Tkv>) {
+                    warp_stats<Tkv, Map::kWarpThreadC>(param_K, vec_K, bitsof<Tkv>);
+                    warp_stats<Tkv, Map::kWarpThreadC>(param_V, vec_V, bitsof<Tkv>);
+                }
+
+                Array<Tkv, kVecSize> out_K[1][ITER_C];
+                Array<Tkv, kVecSize> out_V[1][ITER_C];
+
+                ConvertKvCache<T, Tkv> conv_K{param_K[0][0], param_K[0][1]};
+                ConvertKvCache<T, Tkv> conv_V{param_V[0][0], param_V[0][1]};
+                PRAGMA_UNROLL
+                for (int c = 0; c < ITER_C; ++c) {
+                    out_K[0][c] = conv_K(vec_K[0][c]);
+                    out_V[0][c] = conv_V(vec_V[0][c]);
+                }
+
+                iterator.block_head_.with(
+                    iterator.block_ptrs_, ti, [&](auto k_cache, auto v_cache, T* k_param, T* v_param) {
+                        PRAGMA_UNROLL
+                        for (int c = 0; c < ITER_C; ++c) {
+                            const int di = offset.x + c * Map::kDeltaC;
+                            if (qi < CTA_Q) {
+                                Store(&k_cache[di], out_K[0][c]);
+                                Store(&v_cache[di], out_V[0][c]);
+                            }
+                        }
+                        if constexpr (!std::is_same_v<T, Tkv>) {
+                            if (qi < CTA_Q && offset.x == 0) {
+                                StoreQuantParam<Tkv>(k_param, param_K[0]);
+                                StoreQuantParam<Tkv>(v_param, param_V[0]);
+                            }
                         }
                     }
-                });
+                );
+            }
 
             __syncthreads();
         }
@@ -488,7 +516,9 @@ struct AttentionUniversal {
                       1,
                       0,
                       *(typename ReduceOp::SharedStorage*)smem_buf,
-                      std::true_type{});
+                      std::true_type{},
+                      params.fuse_attention_quant,
+                      params.fp8_qscale);
 
             if (threadIdx.x < split_idx) {
                 locks[threadIdx.x] = 0;
@@ -507,7 +537,12 @@ struct AttentionUniversal {
         Impl::StoreO<true>(frag_O, frag_L, storage, [&](int hi, int qi, int di, const auto& vec) {
             if (qi_begin + qi < qi_end && check_h(hi)) {
                 const int offset = (qi_begin + qi) * params.num_heads * kHeadDim + (head_idx + hi) * kHeadDim + di;
-                Store(&params.out[offset], cast<T>(vec));
+#ifdef ENABLE_FP8
+                if (params.fuse_attention_quant)
+                    Store(&reinterpret_cast<__nv_fp8_e4m3 *>(params.out)[offset], quant<__nv_fp8_e4m3>(vec, params.fp8_qscale));
+                else
+#endif
+                    Store(&params.out[offset], cast<T>(vec));
             }
         });
     }

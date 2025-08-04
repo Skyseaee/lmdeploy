@@ -13,6 +13,7 @@ struct __half;
 struct __nv_bfloat16;
 struct __nv_fp8_e4m3;
 struct __nv_fp8_e5m2;
+struct __nv_fp4_e2m1;
 
 namespace turbomind {
 
@@ -21,6 +22,7 @@ namespace turbomind {
 struct uint2_t {};
 struct uint4_t {};
 struct uint6_t {};
+struct int4_t  {};
 
 template <int I>
 struct int_constant: std::integral_constant<int, I> {};
@@ -31,6 +33,7 @@ struct bitsof_t: int_constant<sizeof(T) * 8> {};
 template <> struct bitsof_t<uint2_t>: int_constant<2> {};
 template <> struct bitsof_t<uint4_t>: int_constant<4> {};
 template <> struct bitsof_t<uint6_t>: int_constant<6> {};
+template <> struct bitsof_t<int4_t>:  int_constant<4> {};
 
 template <class T>
 inline constexpr bitsof_t<T> bitsof{};
@@ -39,6 +42,7 @@ using half_t = __half;
 using bfloat16_t = __nv_bfloat16;
 using fp8_e4m3_t = __nv_fp8_e4m3;
 using fp8_e5m2_t = __nv_fp8_e5m2;
+using fp4_e2m1_t = __nv_fp4_e2m1;
 
 constexpr int encode_data_type(bool sign, int exponent, int mantissa) {
     return ((sign << 16) | (exponent << 8) | mantissa);
@@ -51,6 +55,7 @@ enum class DataType: int {
     kUint16      = encode_data_type(0,  0, 16),
     kUint32      = encode_data_type(0,  0, 32),
     kUint64      = encode_data_type(0,  0, 64),
+    kInt4        = encode_data_type(1,  0,  4),
     kInt8        = encode_data_type(1,  0,  8),
     kInt16       = encode_data_type(1,  0, 16),
     kInt32       = encode_data_type(1,  0, 32),
@@ -61,6 +66,7 @@ enum class DataType: int {
     kBfloat16    = encode_data_type(1,  8,  7),
     kFloat8_e4m3 = encode_data_type(1,  4,  3),
     kFloat8_e5m2 = encode_data_type(1,  5,  2),
+    kFloat4_e2m1 = encode_data_type(1,  2,  1),
     kUint2       = encode_data_type(0,  0,  2),
     kUint4       = encode_data_type(0,  0,  4),
     kUint6       = encode_data_type(0,  0,  6),
@@ -77,6 +83,7 @@ inline constexpr DataType kUint8  = DataType::kUint8;
 inline constexpr DataType kUint16 = DataType::kUint16;
 inline constexpr DataType kUint32 = DataType::kUint32;
 inline constexpr DataType kUint64 = DataType::kUint64;
+inline constexpr DataType kInt4  = DataType::kInt4;
 inline constexpr DataType kInt8  = DataType::kInt8;
 inline constexpr DataType kInt16 = DataType::kInt16;
 inline constexpr DataType kInt32 = DataType::kInt32;
@@ -87,6 +94,7 @@ inline constexpr DataType kFloat64 = DataType::kFloat64;
 inline constexpr DataType kBfloat16 = DataType::kBfloat16;
 inline constexpr DataType kFloat8_e4m3 = DataType::kFloat8_e4m3;
 inline constexpr DataType kFloat8_e5m2 = DataType::kFloat8_e5m2;
+inline constexpr DataType kFloat4_e2m1 = DataType::kFloat4_e2m1;
 inline constexpr DataType kUint2  = DataType::kUint2;
 inline constexpr DataType kUint4  = DataType::kUint4;
 inline constexpr DataType kUint6  = DataType::kUint6;
@@ -114,6 +122,7 @@ CVT_DATA_TYPE(kUint16, uint16_t);
 CVT_DATA_TYPE(kUint32, uint32_t);
 CVT_DATA_TYPE(kUint64, uint64_t);
 
+CVT_DATA_TYPE( kInt4, int4_t);
 CVT_DATA_TYPE( kInt8, int8_t);  // NOTE: `int8_t` is `signed char` and is different from `char`
 CVT_DATA_TYPE(kInt16, int16_t);
 CVT_DATA_TYPE(kInt32, int32_t);
@@ -125,6 +134,7 @@ CVT_DATA_TYPE(kFloat64, double);
 CVT_DATA_TYPE(kBfloat16, bfloat16_t);
 CVT_DATA_TYPE(kFloat8_e4m3, fp8_e4m3_t);
 CVT_DATA_TYPE(kFloat8_e5m2, fp8_e5m2_t);
+CVT_DATA_TYPE(kFloat4_e2m1, fp4_e2m1_t);
 
 CVT_DATA_TYPE(kUint2, uint2_t);
 CVT_DATA_TYPE(kUint4, uint4_t);
@@ -163,6 +173,8 @@ constexpr std::ptrdiff_t byte_size(DataType type, std::ptrdiff_t size = 1) {
         case kUint2: return size * 2 / 8;
         case kUint4: return size * 4 / 8;
         case kUint6: return size * 6 / 8;
+        case kInt4:  return size * 4 / 8;
+        case kFloat4_e2m1: return size * 4 / 8;
     }
     return 0;
 }
@@ -195,6 +207,8 @@ constexpr std::ptrdiff_t numel(DataType type, std::ptrdiff_t size = 1) {
         case kUint2: return size * 8 / 2;
         case kUint4: return size * 8 / 4;
         case kUint6: return size * 8 / 6;
+        case kInt4:  return size * 4 / 8;
+        case kFloat4_e2m1: return size * 4 / 8;
     }
     return 0;
 }
@@ -223,6 +237,8 @@ constexpr const char* to_string(DataType type) {
         case kUint2: return "u2";
         case kUint4: return "u4";
         case kUint6: return "u8";
+        case kInt4: return "i4";
+        case kFloat4_e2m1: return "e2m1";
         default:
             return "unknown";
     }
