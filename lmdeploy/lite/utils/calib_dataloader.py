@@ -384,9 +384,10 @@ async def get_llvm_dataset(tokenizer, nsamples, seed, seqlen=2048, **kwargs):
 
 async def encoding_image(image_path: Union[str, Image.Image], prompt: str, tokenizer, vl_encoder):
     if isinstance(image_path, str):
-        image_path = load_image(image_path).convert('RGB')
+        image_path = load_image(image_path)
+        item = {'type': 'image', 'image': image_path}
     elif isinstance(image_path, Image.Image):
-        image_path = image_path
+        item = {'type': 'image', 'image': image_path}
     else:
         raise ValueError(f'Invalid image path: {image_path}')
 
@@ -395,19 +396,18 @@ async def encoding_image(image_path: Union[str, Image.Image], prompt: str, token
             'role': 'user',
             'content': [
                 {'type': 'text', 'text': prompt},
-                {'type': 'image_url', 'image_url': {'url': f"file://{image_path}" if isinstance(image_path, str) else "memory_image"}},
+                item,
             ]
         }
     ]
 
-    chat_template = BaseChatTemplate()
-    messages = await vl_encoder.async_convert_to_pil_images(messages)
     results = await vl_encoder.preprocess(messages)
     results = await vl_encoder.async_infer(results)
     
-    tm_results = await vl_encoder.wrap_for_turbomind(results, chat_template, tokenizer, sequence_start=True)
-    features = tm_results['input_embeddings']
-    input_ids = tm_results['input_ids']
+    # tm_results = await vl_encoder.wrap_for_pytorch(results, chat_template, tokenizer, sequence_start=True)
+    features = next(m['content'][0] for m in results if m['role'] == 'forward')
+    features = features.cpu()
+    # input_ids = tm_results['input_ids']
 
     segs = [
         "A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions. USER:", 
