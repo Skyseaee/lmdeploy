@@ -142,6 +142,8 @@ class CalibrationContext():
         def _forward(mod, *args, **kwargs):
 
             mod.to(self.device)
+            # if isinstance(args[0], tuple):
+            #     pass
             batch_args, batch_kwargs = split_decoder_layer_inputs(self.batch_size, *args, **kwargs)
             batch_outputs = []
             samples = len(batch_args)
@@ -150,6 +152,12 @@ class CalibrationContext():
 
             for i in range(len(batch_args)):
                 batch_outputs.append(self._ori_forwards[mod](*batch_args[i], **batch_kwargs[i]))
+
+            # if len(batch_outputs) > 0 and len(batch_outputs[0]) > 0 and isinstance(batch_outputs[0][0], torch.Tensor) and batch_outputs[0][0].ndim == 2:
+            #     for i, outs in enumerate(batch_outputs):
+            #         for j, out in enumerate(outs):
+            #             if out.ndim == 2:
+            #                 batch_outputs[i][j] = out.unsqueeze(0)
 
             outputs = concat_decoder_layer_outputs(batch_outputs)
 

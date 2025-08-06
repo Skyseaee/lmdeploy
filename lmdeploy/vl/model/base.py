@@ -167,7 +167,7 @@ class VisonModel(ABC):
             images.extend([(x['image'], {
                 k: v
                 for k, v in x.items() if k not in {'type', 'image'}
-            }) for x in content if (x['type'] == 'image' and not x["cache_hit"])])
+            }) for x in content if (x['type'] == 'image' and not ("cache_hit" in x and x["cache_hit"]))])
         return images
 
     def to_pytorch_aux(self, messages, prompt, IMAGE_TOKEN, tokenizer, sequence_start):

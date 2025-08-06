@@ -326,6 +326,8 @@ async def get_llvm_dataset(tokenizer, nsamples, seed, seqlen=2048, **kwargs):
         [samples]: List of samples with torch.Tensor.
         None
     """
+    from lmdeploy.messages import TurbomindEngineConfig
+    
     dataset_path = kwargs['dataset_path'] if 'dataset_path' in kwargs else 'wikimedia/wit_base'
     model_path = kwargs['model_path'] 
     prompt_file = kwargs['prompt_file'] if 'prompt_file' in kwargs else ''
@@ -341,7 +343,7 @@ async def get_llvm_dataset(tokenizer, nsamples, seed, seqlen=2048, **kwargs):
     np.random.seed(seed=seed)
     random.shuffle(combined)
 
-    vl_encoder = ImageEncoder(model_path, backend='turbomind')
+    vl_encoder = ImageEncoder(model_path, backend='turbomind', backend_config=TurbomindEngineConfig(tp=1))
     
     samples = []
     temp = {'input_ids': None, 'input_embeddings': None} 
