@@ -9,7 +9,7 @@
 set -euxo pipefail
 
 if [ $# != 4 ]; then
-  echo "Usage: $0 model_path deploy_model_format(hf or turbomind, modelopt) precision(fp16, awq-w4a16, awq-w4a8, sq-int8, sq-fp8, fp8, nvfp4) device_id"
+  echo "Usage: $0 model_path deploy_model_format(hf or turbomind, modelopt) precision(fp16, awq-w4a16, awq-w4a8, sq-int8, sq-fp8, fp8, fp8-block, nvfp4) device_id"
   exit 1
 fi
 
@@ -101,7 +101,8 @@ function quantize_model(){
   local extra_args=""
 
   if [ $method = calibrate ] || [ $method = smooth_quant ] || \
-     [ $method = auto_awq ] || [ $method = auto_fp8 ]; then
+     [ $method = auto_awq ] || [ $method = auto_fp8 ] || \
+     [ $method = finegrained_fp8 ]; then
 
        if [ $method = calibrate ] || [ $method = smooth_quant ]; then
          # https://github.com/InternLM/lmdeploy/blob/main/lmdeploy/lite/apis/calibrate.py#L199-L209
@@ -128,7 +129,6 @@ function quantize_model(){
         fi
 
       elif [ $method = auto_fp8 ]; then
-        # https://github.com/InternLM/lmdeploy/blob/main/lmdeploy/lite/apis/auto_fp8.py
         extra_args+="--calib-dataset ultrachat_2k "
         extra_args+="--act-scheme static " # static or dynamic
         extra_args+="--ignored-layer-list lm_head "
@@ -142,6 +142,18 @@ function quantize_model(){
         elif [ $architecture = Qwen2_5_VLForConditionalGeneration ]; then
           extra_args+="re:visual.* "
         fi
+
+      elif [ $method = finegrained_fp8 ]; then
+        extra_args+="--ignored-layer-list lm_head "
+        if [ $architecture = MixtralForCausalLM ]; then
+          extra_args+="block_sparse_moe.gate "
+        elif [ $architecture = CompassMoeForCausalLM ]; then
+          extra_args+="mlp.gate block_sparse_moe.gate "
+        elif [ $architecture = Qwen3MoeForCausalLM  ]; then
+          extra_args+="mlp.gate "
+        elif [ $architecture = Qwen2_5_VLForConditionalGeneration ]; then
+          extra_args+="visual. "
+        fi
       fi
 
       if [ $method = auto_awq ] && [ $architecture = Qwen2ForCausalLM ] && [ $intermediate_size = 29568 ]; then
@@ -153,12 +165,19 @@ function quantize_model(){
         fi
         python3 ${SCRIPT_DIR}/autoawq_quantize.py "${model_path}-padded" ${dst_path}
       else
-        lmdeploy lite $method \
-          ${model_path} `# The name or path of the model to be loaded.` \
-          --calib-samples 128 \
-          --calib-seqlen 2048 \
-          --work-dir ${dst_path} \
-          ${extra_args}
+        if [ $method = finegrained_fp8 ]; then
+          lmdeploy lite $method \
+            ${model_path} `# The name or path of the model to be loaded.` \
+            --work-dir ${dst_path} \
+            ${extra_args}
+        else
+          lmdeploy lite $method \
+            ${model_path} `# The name or path of the model to be loaded.` \
+            --calib-samples 128 \
+            --calib-seqlen 2048 \
+            --work-dir ${dst_path} \
+            ${extra_args}
+        fi
       fi
 
       # for Qwen3MoE models, restore the original value of num_experts_per_tok after quantizing
@@ -243,7 +262,8 @@ elif [ $deploy_model_format = hf ]; then
     exit 0
 
   elif [ $precision = awq-w4a16 ] || [ $precision = sq-int8 ] || \
-    [ $precision = sq-fp8 ] || [ $precision = fp8 ]; then
+    [ $precision = sq-fp8 ] || [ $precision = fp8 ] || \
+    [ $precision = fp8-block ]; then
     check_transformers_version ${MODEL_PATH}
 
     if [ $precision = awq-w4a16 ]; then
@@ -254,9 +274,12 @@ elif [ $deploy_model_format = hf ]; then
 
     elif [ $precision = fp8 ]; then
       quantize_model auto_fp8 ${MODEL_PATH} ${quant_model_path}
+
+    elif [ $precision = fp8-block ]; then
+      quantize_model finegrained_fp8 ${MODEL_PATH} ${quant_model_path}
     fi
   else
-    echo "Precision only supports awq-w4a16, sq-int8, sq-fp8 and fp8"
+    echo "Precision only supports awq-w4a16, sq-int8, sq-fp8, fp8 and fp8-block"
     exit 1
   fi
 elif [ $deploy_model_format = modelopt ]; then
