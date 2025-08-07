@@ -64,8 +64,7 @@ RUN rsync -avL scripts_maas/ /workspace/scripts
 RUN pip install -U shopee-ais -i https://pypi.garenanow.com/simple/ && curl https://rclone.org/install.sh | sudo bash
 
 # ais-kvcache-sdk -> lmcache -> torch==2.7.0
-RUN python3 -m pip install lmcache==0.3.0
-RUN python3 -m pip install shopee-ais-kvcache-sdk -i https://pypi.shopee.io/
+RUN python3 -m pip install shopee-ais-kvcache-sdk==0.0.3 -i https://pypi.shopee.io/
 RUN python3 -m pip install --no-cache-dir pytest matplotlib
 RUN mkdir -p /workspace/tests
 COPY tests/test_lmdeploy /workspace/tests/test_lmdeploy
