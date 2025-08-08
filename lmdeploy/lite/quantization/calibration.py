@@ -142,8 +142,8 @@ class CalibrationContext():
         def _forward(mod, *args, **kwargs):
 
             mod.to(self.device)
-            # if isinstance(args[0], tuple):
-            #     pass
+            if isinstance(args[0], tuple):
+                args = args[0]
             batch_args, batch_kwargs = split_decoder_layer_inputs(self.batch_size, *args, **kwargs)
             batch_outputs = []
             samples = len(batch_args)
