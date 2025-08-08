@@ -1,10 +1,7 @@
-import os
-from glob import glob
 import os.path as osp
 import math
 import json
 
-from lmdeploy.archs import get_model_arch
 from .base import INPUT_MODELS
 from ..config import RopeParam
 from .llama import LlamaModel, LlamaReader
@@ -87,31 +84,16 @@ class CompassLLVM(LlamaModel):
     def __init__(self, model_path: str, tokenizer_path: str, ckpt_path: str = None, **kwargs):
         super().__init__(model_path, tokenizer_path, **kwargs)
         self.model_path = model_path
-        # self.ckpt_path = ckpt_path if ckpt_path else model_path
-        # self.ckpt_files = self.get_ckpt()
         from transformers import AutoConfig
         config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
-        self.version = "1.0"
-        if hasattr(config, "version"):
-            self.version = config.version
+        self.version = getattr(config, "version", "1.0")
+        # print(f"CompassLLVM version={self.version}")
         version_readers = {
             "1.0": CompassReader,
             "1.6": CompassV1d6Reader,
             "2.0": CompassMoeReader,
         }
         self.Reader = version_readers[self.version]
-
-    def get_ckpt(self):
-        """Get weight files."""
-        patterns = ['*.safetensors', 'pytorch_model*.bin']
-        files = []
-        for pattern in patterns:
-            files = glob(os.path.join(self.ckpt_path, pattern))
-            files = [os.path.basename(file) for file in files]
-            if len(files) > 0:
-                break
-        files = sorted(files)
-        return files
 
     def model_info(self):
         """Read model info."""
@@ -219,18 +201,18 @@ class CompassLLVM(LlamaModel):
                 rope_param=rope_param)
         if self.version == "2.0":
             # compass-moe
-            num_experts = model_arg['num_experts']
+            expert_num = model_arg['num_experts']
             expert_inter_size = model_arg['moe_intermediate_size']
             experts_per_token = model_arg['num_experts_per_tok']
             inter_size = model_arg['shared_expert_intermediate_size']
             moe_shared_gate = model_arg['use_shared_expert_gate']
-            moe_norm_topk = model_arg['norm_topk_prob']
-            info.update(num_experts=num_experts,
+            norm_topk_prob = model_arg['norm_topk_prob']
+            info.update(expert_num=expert_num,
                         expert_inter_size=expert_inter_size,
                         experts_per_token=experts_per_token,
                         inter_size=inter_size,
                         moe_shared_gate=moe_shared_gate,
-                        moe_norm_topk=moe_norm_topk,
+                        norm_topk_prob=norm_topk_prob,
                         attn_bias=0)
 
         return info
