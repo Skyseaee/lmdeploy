@@ -90,6 +90,6 @@ class CompassMoeModel(LlamaModel):
             # compass-smoe
             info['inter_size'] = cfg['shared_expert_intermediate_size']
         info['moe_shared_gate'] = False
-        info['moe_norm_topk'] = True
+        info['norm_topk_prob'] = cfg['norm_topk_prob']
         info['attn_bias'] = 0
         return info
