@@ -70,7 +70,8 @@ def concat_decoder_layer_outputs(batch_outputs: List[Tuple[Any]]) -> Tuple[Any]:
         Tuple[Any]: A tuple representing the batched output.
     """
 
-    num_returns = len(batch_outputs[0])
+    is_tuple = isinstance(batch_outputs[0], tuple)
+    num_returns = len(batch_outputs[0]) if is_tuple else len(batch_outputs)
 
     def is_past_key_value(data: Any) -> bool:
         """Check whether data is a past key-value pair.
@@ -92,17 +93,17 @@ def concat_decoder_layer_outputs(batch_outputs: List[Tuple[Any]]) -> Tuple[Any]:
     # Iterate over all types of return values.
     for i in range(num_returns):
         # Check if the current element is a past key-value pair.
-        flag = is_past_key_value(batch_outputs[0][i])
+        flag = is_past_key_value(batch_outputs[0][i]) if is_tuple else is_past_key_value(batch_outputs[i])
         if flag:
             # Concatenate the keys and values separately.
-            key = torch.cat([out[i][0] for out in batch_outputs])
-            value = torch.cat([out[i][1] for out in batch_outputs])
+            key = torch.cat([out[i][0] for out in batch_outputs]) if is_tuple else torch.cat([out[i] for out in batch_outputs])
+            value = torch.cat([out[i][1] for out in batch_outputs]) if is_tuple else torch.cat([out[i] for out in batch_outputs])
             out_i = (key, value)
         elif batch_outputs[0][i] is None:  # glm4
             out_i = None
         else:
             # If it's not a past key-value pair, concatenate directly.
-            out_i = torch.cat([out[i] for out in batch_outputs])
+            out_i = torch.cat([out[i] for out in batch_outputs]) if is_tuple else torch.cat([out for out in batch_outputs])
         new_outputs.append(out_i)
 
     return tuple(new_outputs)
