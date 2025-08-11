@@ -356,11 +356,12 @@ class AsyncEngine(LogitsMixin):
         self.hf_tm_cfg = getattr(self.engine.model_config, 'hf_config', None)
 
     def __call__(self,
-                 prompts: Union[List[str], str, List[Dict], List[List[Dict]]],
+                 prompts: Union[List[str], str, List[Dict], List[List[Dict]]] = None,
                  gen_config: Optional[GenerationConfig] = None,
                  do_preprocess: bool = True,
                  adapter_name: Optional[str] = None,
                  use_tqdm: bool = False,
+                 input_ids: Optional[List] = None,
                  **kwargs):
         """Inference a batch of prompts.
 
@@ -376,6 +377,7 @@ class AsyncEngine(LogitsMixin):
             adapter_name (str): the adapter name of slora for pytorch backend.
                 Pick one from adapters. Default to None, using the base model.
             use_tqdm (bool): Whether use the progress bar. Default to False
+            input_ids (Optional[List]): token ids as input when prompts is None
         """
         if gen_config is None:
             gen_config = GenerationConfig()
@@ -384,6 +386,7 @@ class AsyncEngine(LogitsMixin):
                                 do_preprocess=do_preprocess,
                                 adapter_name=adapter_name,
                                 use_tqdm=use_tqdm,
+                                input_ids=input_ids,
                                 **kwargs)
 
     async def stop_session(self, session_id: int):
@@ -462,16 +465,26 @@ class AsyncEngine(LogitsMixin):
         return isinstance(prompts, str) or isinstance(prompts[0], Dict)
 
     def infer(self,
-              prompts: Union[List[str], str, List[Dict], List[List[Dict]]],
+              prompts: Union[List[str], str, List[Dict], List[List[Dict]]] = None,
               gen_config: Optional[Union[GenerationConfig, List[GenerationConfig]]] = None,
               do_preprocess: bool = True,
               adapter_name: Optional[str] = None,
               stream_response: bool = False,
               multiplex: bool = False,
               pbar: Optional[tqdm.tqdm] = None,
+              input_ids: Optional[List] = None,
               **kwargs):
 
-        prompts = [prompts] if AsyncEngine._is_single(prompts) else prompts
+        if prompts is None and input_ids is not None:
+            if isinstance(input_ids[0], list):
+                batch_size = len(input_ids)
+            else:
+                batch_size = 1
+                input_ids = [input_ids]
+            prompts = [None] * batch_size
+        else:
+            prompts = [prompts] if AsyncEngine._is_single(prompts) else prompts
+
         assert isinstance(prompts, List), 'prompts should be a list'
         gen_config = gen_config or GenerationConfig()
         if not isinstance(gen_config, List):
@@ -480,7 +493,7 @@ class AsyncEngine(LogitsMixin):
                 'input gen_confg length differs from the length of prompts'  # noqa
 
         def requests():
-            for prompt, gen_cfg in zip(prompts, gen_config):
+            for i, (prompt, gen_cfg) in enumerate(zip(prompts, gen_config)):
                 r = dict(messages=prompt,
                          gen_config=gen_cfg,
                          do_preprocess=do_preprocess,
@@ -491,16 +504,21 @@ class AsyncEngine(LogitsMixin):
                 r.setdefault('sequence_end', True)
                 if 'session_id' not in r:
                     r['session_id'] = next(self._session_id)
+                # if prompt is None and input_ids is not None
+                if prompt is None and input_ids is not None:
+                    r['messages'] = None
+                    r['input_ids'] = input_ids[i]
                 yield r
 
         return self._infer(requests(), multiplex, pbar)
 
     def batch_infer(self,
-                    prompts: Union[List[str], str, List[Dict], List[List[Dict]]],
+                    prompts: Union[List[str], str, List[Dict], List[List[Dict]]] = None,
                     gen_config: Optional[Union[GenerationConfig, List[GenerationConfig]]] = None,
                     do_preprocess: bool = True,
                     adapter_name: Optional[str] = None,
                     use_tqdm: bool = False,
+                    input_ids: Optional[List] = None,
                     **kwargs):
         """Inference a batch of prompts.
 
@@ -516,10 +534,25 @@ class AsyncEngine(LogitsMixin):
             adapter_name (str): the adapter name of slora for pytorch backend.
                 Pick one from adapters. Default to None, using the base model.
             use_tqdm (bool): Whether use the progress bar. Default to False
+            input_ids (Optional[List]): token ids as input when prompts is None
         """
-        is_single = AsyncEngine._is_single(prompts)
+        if prompts is None and input_ids is not None:
+            if not isinstance(input_ids, list):
+                raise ValueError("input_ids should be a list")
+
+            if input_ids and isinstance(input_ids[0], list):
+                is_single = False
+                batch_size = len(input_ids)
+            else:
+                is_single = True
+                input_ids = [input_ids]
+                batch_size = 1
+        else:
+            is_single = AsyncEngine._is_single(prompts)
+            batch_size = 1 if is_single else (len(prompts) if prompts is not None else 0)
+
         outputs = []
-        pbar = tqdm.tqdm(total=1 if is_single else len(prompts)) if use_tqdm else None
+        pbar = tqdm.tqdm(total=batch_size) if use_tqdm else None
         try:
             for g in self.infer(prompts,
                                 gen_config,
@@ -527,6 +560,7 @@ class AsyncEngine(LogitsMixin):
                                 adapter_name,
                                 stream_response=False,
                                 pbar=pbar,
+                                input_ids=input_ids,
                                 **kwargs):
                 res = None
                 for out in g:
@@ -735,6 +769,13 @@ class AsyncEngine(LogitsMixin):
             # TODO(lvhan) VLM doesn't support input_ids as an argument.
             # Figure out a graceful way to handle the invalid input
             prompt_input = dict(input_ids=input_ids)
+            preprocess_time = (time.time() - start_time) * 1000
+            input_ids = prompt_input['input_ids']
+            self.request_logger.log_inputs(session_id=session_id,
+                                           prompt=None,
+                                           prompt_token_ids=input_ids,
+                                           gen_config=gen_config,
+                                           adapter_name=adapter_name)
 
         if gen_config.max_new_tokens is None:
             # for interactive endpoint, will try maximum possible token num
@@ -761,11 +802,15 @@ class AsyncEngine(LogitsMixin):
             return
 
         if self.id2step[session_id] + len(input_ids) >= self.session_len:
-            warn_msg = f'run out of tokens. session_id={session_id}'
-            logger.warn(warn_msg)
-            finish_reason = 'length'
-            cost_time = (time.time() - start_time) * 1000
-            logger.info(f'traceid: {traceid}, input_tokens: {len(input_ids)}, session_id: {session_id}, '
+            if gen_config.trunc_to_session_length:
+                input_ids = input_ids[:self.session_len - self.id2step[session_id]]
+                prompt_input['input_ids'] = input_ids
+            else:
+                warn_msg = f'run out of tokens. session_id={session_id}'
+                logger.warn(warn_msg)
+                finish_reason = 'length'
+                cost_time = (time.time() - start_time) * 1000
+                logger.info(f'traceid: {traceid}, input_tokens: {len(input_ids)}, session_id: {session_id}, '
                         f'stream: {stream_response}, sequence_start: {sequence_start},'
                         f'sequence_end: {sequence_end}, max_new_tokens: {gen_config.max_new_tokens},'
                         f'top_k: {gen_config.top_k}, top_p: {gen_config.top_p}, temperature: {gen_config.temperature}, '
@@ -773,11 +818,12 @@ class AsyncEngine(LogitsMixin):
                         f'ignore_eos: {gen_config.ignore_eos}, finish_reason: {finish_reason}, '
                         f'preprocess_time: {preprocess_time:0.2f}, total_time: {cost_time:0.2f}'
                         )
-            yield GenOut(warn_msg, self.id2step[session_id], len(input_ids), 0,
-                         finish_reason, cost_time=cost_time)
-            if sequence_end is True and sequence_start is False:
-                await self.end_session(session_id)
-            return
+                yield GenOut(warn_msg, self.id2step[session_id], len(input_ids), 0,
+                        finish_reason, cost_time=cost_time)
+                if sequence_end is True and sequence_start is False:
+                    await self.end_session(session_id)
+                return
+
 
         def is_error(status):
             return status not in [ResponseType.SUCCESS, ResponseType.FINISH]

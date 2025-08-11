@@ -109,6 +109,7 @@ class GenerationConfig:
     logits_processors: Optional[List[LogitsProcessor]] = None
     output_logits: Literal['all', 'generation'] = None
     output_last_hidden_state: Literal['all', 'generation'] = None
+    trunc_to_session_length: bool = False
 
     # for disaggregation
     with_cache: bool = False
