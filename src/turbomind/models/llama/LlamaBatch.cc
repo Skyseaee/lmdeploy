@@ -110,11 +110,27 @@ void LlamaBatch::DisableInvalidRequests(Requests& infer_reqs, Requests& kill_req
         }
     };
 
-    auto validate = [&occur](auto& reqs, const char* type) {
+    auto validate = [this, &occur](auto& reqs, const char* type) {
         for (const auto& r : reqs) {
             if (occur[r->id] > 1) {
                 TM_LOG_ERROR("Skip conflicting %s request for ID %lu", type, r->id);
                 r->ec = Request::kConflict;
+            }
+            if (param_.enable_prefix_caching) {
+                if (r->session.step != 0) {
+                    // Prefix caching is incompatible with interactive mode
+                    TM_LOG_ERROR("Skip inconsistent %s request for ID %lu step %d", type, r->id, r->session.step);
+                    r->ec = Request::kInconsistency;
+                }
+                else if (r->gen_cfg.output_logits == GenerationConfig::kAll
+                         || r->gen_cfg.output_last_hidden_state == GenerationConfig::kAll) {
+                    // Prefix caching is incompatible with outputting all tokens' logits or last_hidden_state
+                    TM_LOG_ERROR("Skip inconsistent %s request for ID %lu. It cannot output logits or "
+                                 "last_hidden_states for all tokens",
+                                 type,
+                                 r->id);
+                    r->ec = Request::kInconsistency;
+                }
             }
         }
     };
@@ -202,7 +218,7 @@ void LlamaBatch::ProcessInferRequests(const Requests& reqs, std::vector<Signal>&
     for (const auto& r : reqs) {
 
         if (tp_rank_ == 0) {
-            TM_LOG_INFO("[ProcessInferRequests] Request for %ld received.", (long)r->id);
+            TM_LOG_INFO("[ProcessInferRequests] Request for %lld received.", r->id);
         }
 
         if (r->ec) {
@@ -249,7 +265,7 @@ void LlamaBatch::ProcessInferRequests(const Requests& reqs, std::vector<Signal>&
 
         auto& seq = *state.sequences[idx];
 
-        if (step < seq.tokens.size()) {
+        if (!param_.enable_prefix_caching && step < seq.tokens.size()) {
             // resize sequence tokens to match step
             seq.tokens.resize(step);
             seq.cache_len = std::min(seq.cache_len, step);
@@ -808,8 +824,11 @@ LlamaBatch::~LlamaBatch()
     cudaStreamSynchronize(stream_);
 
     model_.reset();
+    TM_LOG_DEBUG("model reset done.");
     sequence_manager_.reset();
+    TM_LOG_DEBUG("sequence manager reset done.");
     context_.reset();  // This destroy all objects in context except for `stream`
+    TM_LOG_DEBUG("context reset done.");
 }
 
 LlamaBatch::LlamaBatch(DataType                 data_type,
@@ -1011,14 +1030,14 @@ void LlamaBatch::OutputLogits(const Tensor& logits, int first, int last, Generat
 {
     const auto& src_buf   = logits.buffer();
     const auto  elem_size = byte_size(logits.dtype(), 1);
-    // when `is_all` is true, logits only contains last token of the sequences
+    // when `is_all` is false, logits only contains last token of the sequences
     const bool is_all = out_type == GenerationConfig::kAll;
 
     int base = 0;
 
     for (int i = first; i < last; ++i) {
 
-        const int input_len = h_input_length_buf_[i];  // input lenght for this iter
+        const int input_len = h_input_length_buf_[i];  // input length for this iter
 
         if (state_->requests[i]->gen_cfg.output_logits == out_type) {
 
@@ -1204,7 +1223,7 @@ void LlamaBatch::Finish(GenerationState& g, std::vector<Signal>& signals)
     }
 
     // Cache computed blocks to block trie
-    sequence_manager_->CacheIfEnabled(state_->sequences, batch_size);
+    sequence_manager_->CachePrompt(state_->sequences, batch_size);
 
     if (debug_ && tp_rank_ == 0) {
         for (int i = 0; i < batch_size; ++i) {
@@ -1269,14 +1288,13 @@ void LlamaBatch::Finish(GenerationState& g, std::vector<Signal>& signals)
     }
 }
 
-auto LlamaBatch::Interrupt(int index, bool force_stop, bool force_end) -> Signal
+auto LlamaBatch::Interrupt(int index, bool force_stop) -> Signal
 {
     if (tp_rank_ == 0) {
         TM_LOG_INFO("[Interrupt] slot %d, request %lu, stop %d, end %d",
                     index,
                     (long)state_->requests[index]->id,
-                    force_stop,
-                    force_end);
+                    force_stop);
     }
 
     if (debug_ && tp_rank_ == 0) {
@@ -1290,21 +1308,23 @@ auto LlamaBatch::Interrupt(int index, bool force_stop, bool force_end) -> Signal
         TM_LOG_INFO("[Interrupt] slot %d, tokens [%s]", index, ss.str().c_str());
     }
 
-    if (state_->requests[index]->session.end_flag || force_end) {
-        // Sequence is ending this round or a stop request is issued to end it
+    auto& seq = *state_->sequences[index];
+    {
+        // output_ids is updated & synced in `Finish`
+        const auto output_ids = state_->requests[index]->output_ids.data();
+        const auto output_len = state_->h_context_length[index];
+        // Update token IDs to perform `CacheGeneration` later
+        seq.tokens.resize(output_len);
+        std::copy_n(output_ids, output_len, seq.tokens.data());
+    }
+
+    if (state_->requests[index]->session.end_flag) {
+        // Cache the generated tokens of the sequence
+        sequence_manager_->CacheGeneration(seq);
         FT_CHECK(sequence_manager_->Erase(state_->requests[index]->id));
     }
     else {
-        const int output_len = state_->h_context_length[index];
-        auto&     seq        = *state_->sequences[index];
-
-        // Update token IDs
-        seq.tokens.resize(output_len);
-
-        // output_ids is updated & synced in `Finish`
-        const auto output_ids = state_->requests[index]->output_ids.data();
-        std::copy_n(output_ids, output_len, seq.tokens.data());
-
+        // Prefix caching is incompatible with interactive mode, so we don't perform `CacheGeneration` here
         // Save random state in host memory
         seq.random_state.resize(sizeof(curandState_t));
         // This async copy must be synchronized by the caller
@@ -1363,6 +1383,7 @@ void LlamaBatch::InternalThreadEntry()
                 gateway_->pop(req->infer, req->kill, free_slot_count, is_empty, req->abort, dp_rank_);
             }
             // Mark reqs to the same session_id as invalid (which are dangerous to the engine)
+            // prefix caching is enabled(which are dangerous to the engine)
             DisableInvalidRequests(req->infer, req->kill);
             FindCanceledIndices(req->cancel);
         }

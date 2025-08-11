@@ -577,6 +577,21 @@ class TurboMindInstance:
 
         self.config = config
         self.lock = None
+        # error code map from csrc (refer to `struct Request` in src/turbomind/engine/request.h)
+        # to lmdeploy.messages.ResponseType
+        self.errcode_map = {
+            0: ResponseType.SUCCESS,
+            1: ResponseType.SESSION_NOT_EXIST,
+            2: ResponseType.SESSION_REPEAT,
+            3: ResponseType.SESSION_REPEAT,
+            4: ResponseType.INTERNAL_ENGINE_ERROR,
+            5: ResponseType.INTERNAL_ENGINE_ERROR,
+            6: ResponseType.INPUT_LENGTH_ERROR,
+            7: ResponseType.FINISH,
+            8: ResponseType.CANCEL,
+            9: ResponseType.PREFIX_CACHE_CONFLICT_INTERACTIVE_MODE,
+            -1: ResponseType.INTERNAL_ENGINE_ERROR,
+        }
 
     @property
     def model_inst(self):

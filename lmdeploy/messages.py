@@ -399,12 +399,14 @@ class ResponseType(enum.Enum):
 
     SUCCESS = enum.auto()
     FINISH = enum.auto()
+    CANCEL = enum.auto()
     ENGINE_STOP_ERROR = enum.auto()
     SESSION_REPEAT = enum.auto()
     SESSION_NOT_EXIST = enum.auto()
     HANDLER_NOT_EXIST = enum.auto()
     INPUT_LENGTH_ERROR = enum.auto()
     INTERNAL_ENGINE_ERROR = enum.auto()
+    PREFIX_CACHE_CONFLICT_INTERACTIVE_MODE = enum.auto()
 
 
 @dataclass
@@ -438,6 +440,15 @@ class Response:
     logits: torch.Tensor = None
     last_hidden_state: torch.Tensor = None
     index: int = 0
+
+    def __repr__(self):
+        logits = 'logits=None' if self.logits is None else f'logits.shape={self.logits.shape}\nlogits={self.logits}'
+        hidden_state = (
+            'last_hidden_state=None' if self.last_hidden_state is None else
+            f'last_hidden_state.shape={self.last_hidden_state.shape}\nlast_hidden_state={self.last_hidden_state}')
+        s = (f'text={self.text}\ngenerate_token_len={self.generate_token_len}\nfinish_reason="{self.finish_reason}"\n'
+             f'token_ids={self.token_ids}\nlog_probs={self.logprobs}\n{logits}\n{hidden_state}')
+        return s
 
 
 # copy from https://github.com/vllm-project/vllm/blob/main/vllm/v1/engine/__init__.py

@@ -835,6 +835,18 @@ class AsyncEngine(LogitsMixin):
             if sequence_end is True and sequence_start is False:
                 await self.end_session(session_id)
             return
+        
+        if self.backend_config.enable_prefix_caching and (gen_config.output_last_hidden_state == 'all'
+                                                          or gen_config.output_logits == 'all'):
+            errmsg = ('lmdeploy does not support outputting all token\'s logits or last_hidden_state '
+                      'when prefix caching is ON')
+            yield GenOut(response=errmsg,
+                         history_token_len=self.id2step[session_id],
+                         input_token_len=len(input_ids),
+                         generate_token_len=0,
+                         finish_reason='error',
+                         token_ids=[])
+            return        
 
         if self.id2step[session_id] + len(input_ids) >= self.session_len:
             if gen_config.trunc_to_session_length:
