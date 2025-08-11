@@ -43,8 +43,7 @@ def build_request(output_len):
         'question': prompt,
         'output_len': output_len,
         'stream': stream,
-        'random_seed': 42,
-        'stop': False,
+        'random_seed': 42
     }
     input_dict = {
         'traceid': 123456,
