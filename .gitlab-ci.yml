@@ -109,6 +109,7 @@ IMG_llvm:
   image: docker:24.0.6
   variables:
     DOCKER_HOST: "unix:///var/run/docker.sock"  # use host Docker directly
+    GIT_STRATEGY: none  # do not need to clone git
   before_script:
     - docker info
     - docker logout "$CI_REGISTRY"
