@@ -1,0 +1,81 @@
+FROM harbor.shopeemobile.com/aip/tinydocker/filecopy:v1 AS file-copy
+FROM harbor.shopeemobile.com/aip/nvcr.io/nvidia/pytorch:24.06-py3
+
+# copy some hf files for cache
+RUN mkdir -p /root/.cache
+COPY --from=file-copy /files/huggingface-cache /root/.cache/huggingface
+
+# for ais platform experiment
+RUN apt-get update && apt-get install -y sudo
+RUN adduser --gecos '' --disabled-password work && echo "work ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/nopasswd
+
+ARG PYTHON_INSTALL_PATH=/opt/py3
+RUN apt-get install -y --no-install-recommends \
+    rapidjson-dev libgoogle-glog-dev gdb python3.10-venv \
+    && rm -rf /var/lib/apt/lists/* && python3 -m venv ${PYTHON_INSTALL_PATH}
+
+ENV PATH=${PYTHON_INSTALL_PATH}/bin:$PATH
+
+RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools==69.5.1 &&\
+    python3 -m pip install --no-cache-dir torch==2.7.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cu126 &&\
+    python3 -m pip install --no-cache-dir cmake==3.31.6 packaging wheel==0.45.1
+
+ENV NCCL_LAUNCH_MODE=GROUP
+RUN python3 -m pip install --no-cache-dir --trusted-host pypi.shopee.io -i http://pypi.shopee.io/simple/ "aip-infer-utils>=0.6.2"
+
+RUN pip3 show torch
+
+# Should be in the lmdeploy root directory when building docker image
+COPY . /opt/lmdeploy
+
+WORKDIR /opt/lmdeploy
+
+RUN cd /opt/lmdeploy &&\
+    python3 -m pip install --no-cache-dir -r requirements_cuda.txt &&\
+    mkdir -p build && cd build &&\
+    cmake -G Ninja .. \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
+        -DCMAKE_INSTALL_PREFIX=/opt/lmdeploy/install \
+        -DBUILD_PY_FFI=ON \
+        -DBUILD_MULTI_GPU=ON \
+        -DCMAKE_CUDA_FLAGS="-lineinfo" \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DUSE_NVTX=ON \
+        -DENABLE_FP8=OFF \
+        -DCUTLASS_FP8=ON \
+        -DFUSED_GATED_GEMM=ON \
+        -DFUSED_MOE_FFN_GEMM=ON &&\
+    ninja -j$(nproc) && ninja install &&\
+    cd .. && python3 -m pip install .
+
+# for torch 2.7.0 import error: undefined symbol: __nvjitlinkgeterrorlog_12_6
+ENV LD_LIBRARY_PATH=${PYTHON_INSTALL_PATH}/lib/python3.10/site-packages/nvidia/nvjitlink/lib:$LD_LIBRARY_PATH
+
+ENV LD_LIBRARY_PATH=/opt/tritonserver/lib:$LD_LIBRARY_PATH
+# explicitly set ptxas path for triton
+ENV TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas
+ENV LD_PRELOAD=/usr/local/cuda/lib64/libcudart.so
+
+COPY *.sh /workspace/
+RUN rsync -avL scripts_maas/ /workspace/scripts
+
+# for pytest
+RUN pip install -U shopee-ais -i https://pypi.garenanow.com/simple/ && curl https://rclone.org/install.sh | sudo bash
+
+# ais-kvcache-sdk -> lmcache -> torch==2.7.0
+RUN python3 -m pip install shopee-ais-kvcache-sdk==0.0.3 -i https://pypi.shopee.io/
+RUN python3 -m pip install --no-cache-dir pytest matplotlib
+RUN mkdir -p /workspace/tests
+COPY tests/test_lmdeploy /workspace/tests/test_lmdeploy
+
+ARG VERSION
+ENV ONELLM_VERSION=${VERSION}
+
+WORKDIR /workspace
+ENV PROMETHEUS_MULTIPROC_DIR=/workspace/metrics
+RUN mkdir -p /workspace/metrics
+
+RUN rm -rf /opt/lmdeploy
+
+CMD ["lmdeploy", "serve", "api_server", "./models/", "--server-name", "0.0.0.0", "--server-port", "80", "--tp", "1"]

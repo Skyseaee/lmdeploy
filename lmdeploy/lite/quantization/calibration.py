@@ -142,6 +142,8 @@ class CalibrationContext():
         def _forward(mod, *args, **kwargs):
 
             mod.to(self.device)
+            if isinstance(args[0], tuple):
+                args = args[0]
             batch_args, batch_kwargs = split_decoder_layer_inputs(self.batch_size, *args, **kwargs)
             batch_outputs = []
             samples = len(batch_args)
@@ -150,6 +152,12 @@ class CalibrationContext():
 
             for i in range(len(batch_args)):
                 batch_outputs.append(self._ori_forwards[mod](*batch_args[i], **batch_kwargs[i]))
+
+            # if len(batch_outputs) > 0 and len(batch_outputs[0]) > 0 and isinstance(batch_outputs[0][0], torch.Tensor) and batch_outputs[0][0].ndim == 2:
+            #     for i, outs in enumerate(batch_outputs):
+            #         for j, out in enumerate(outs):
+            #             if out.ndim == 2:
+            #                 batch_outputs[i][j] = out.unsqueeze(0)
 
             outputs = concat_decoder_layer_outputs(batch_outputs)
 
@@ -213,7 +221,7 @@ class CalibrationContext():
         torch.save(out_stats, out_dir / 'outputs_stats.pth')
         torch.cuda.empty_cache()
 
-    def calibrate(self, data):
+    def calibrate(self, data, calib_dataset):
         """Forward pass through the model in inference mode with given data."""
 
         if type(self.model).__name__ in ('QWenLMHeadModel', 'ChatGLMForConditionalGeneration'):
@@ -221,8 +229,21 @@ class CalibrationContext():
         else:
             model = self.model.model
         with torch.inference_mode():
-            _ = model(data.to(self.device))
+            if calib_dataset == 'llvm':
+                images_embeddings = data['embeddings']
+                data = data['data']
+                inputs_ids = data.to(self.device)
+                texts_embeddings = model.get_input_embeddings()(inputs_ids)
+                images_embeddings = images_embeddings.to(dtype=texts_embeddings.dtype)
+                mixed_embeddings = self.modified_embeddings(texts_embeddings, images_embeddings)
+                _ = model(inputs_embeds=mixed_embeddings)
+            else:
+                _ = model(data.to(self.device))
         torch.cuda.empty_cache()
+    
+    def modified_embeddings(self, texts_embeddings, images_embeddings):
+        assert texts_embeddings.shape == images_embeddings.shape, "incorrect images embeddings"
+        return (texts_embeddings + images_embeddings)
 
     def __enter__(self):
         """Prepares the Calibration object for a 'with' statement by

@@ -15,6 +15,64 @@ class SubCliLite(object):
     subparsers = parser.add_subparsers(title='Commands', description='This group has the following commands:')
 
     @staticmethod
+    def add_parser_finegrained_fp8():
+        """Add parser for finegrained_fp8 command."""
+        parser = SubCliLite.subparsers.add_parser(
+            'finegrained_fp8',
+            formatter_class=DefaultsAndTypesHelpFormatter,
+            description=SubCliLite.finegrained_fp8.__doc__,
+            help=SubCliLite.finegrained_fp8.__doc__)
+        parser.set_defaults(run=SubCliLite.finegrained_fp8)
+        parser.add_argument('model',
+                            type=str,
+                            help='The path of model in hf format')
+        ArgumentHelper.revision(parser)
+        ArgumentHelper.download_dir(parser)
+        ArgumentHelper.work_dir(parser)
+        ArgumentHelper.device(parser)
+        parser.add_argument(
+            '--ignored-layer-list',
+            nargs="+",
+            default=['lm_head'],
+            help='A list of layer names that do not require fine-grained fp8 quantization')
+
+    @staticmethod
+    def add_parser_auto_fp8():
+        """Add parser for auto_fp8 command."""
+        parser = SubCliLite.subparsers.add_parser(
+            'auto_fp8',
+            formatter_class=DefaultsAndTypesHelpFormatter,
+            description=SubCliLite.auto_fp8.__doc__,
+            help=SubCliLite.auto_fp8.__doc__)
+        parser.set_defaults(run=SubCliLite.auto_fp8)
+        parser.add_argument('model',
+                            type=str,
+                            help='The path of model in hf format')
+        ArgumentHelper.revision(parser)
+        ArgumentHelper.download_dir(parser)
+        ArgumentHelper.work_dir(parser)
+        ArgumentHelper.calib_dataset(parser)
+        ArgumentHelper.calib_samples(parser)
+        ArgumentHelper.calib_seqlen(parser)
+        ArgumentHelper.calib_batchsize(parser)
+        ArgumentHelper.device(parser)
+        parser.add_argument(
+            '--act-scheme',
+            type=str,
+            default='static',
+            help='Choice of either "dynamic" or "static" quantization scheme of'
+                 ' activtions.')
+        parser.add_argument(
+            '--kv-cache-fp8',
+            action='store_true',
+            help='Whether to do KV cache fp8 static quantization')
+        parser.add_argument(
+            '--ignored-layer-list',
+            nargs="+",
+            default=['lm_head'],
+            help='A list of layer names that do not require fp8 quantization')
+
+    @staticmethod
     def add_parser_auto_awq():
         """Add parser for auto_awq command."""
         parser = SubCliLite.subparsers.add_parser('auto_awq',
@@ -104,6 +162,20 @@ class SubCliLite(object):
         ArgumentHelper.download_dir(parser)
 
     @staticmethod
+    def finegrained_fp8(args):
+        """Perform fine-grained fp8 quantization."""
+        from lmdeploy.lite.apis.finegrained_fp8 import finegrained_fp8
+        kwargs = convert_args(args)
+        finegrained_fp8(**kwargs)
+
+    @staticmethod
+    def auto_fp8(args):
+        """Perform fp8 quantization using auto_fp8 algorithm."""
+        from lmdeploy.lite.apis.auto_fp8 import auto_fp8
+        kwargs = convert_args(args)
+        auto_fp8(**kwargs)
+
+    @staticmethod
     def auto_awq(args):
         """Perform weight quantization using AWQ algorithm."""
         from lmdeploy.lite.apis.auto_awq import auto_awq
@@ -134,6 +206,8 @@ class SubCliLite(object):
     @staticmethod
     def add_parsers():
         """Add all parsers."""
+        SubCliLite.add_parser_finegrained_fp8()
+        SubCliLite.add_parser_auto_fp8()
         SubCliLite.add_parser_auto_awq()
         SubCliLite.add_parser_auto_gptq()
         SubCliLite.add_parser_calibrate()

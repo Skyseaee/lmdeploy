@@ -1,0 +1,9 @@
+[submodule "scripts/benchmarks"]
+	path = scripts/benchmarks
+	url = https://gitlab+deploy-token-1198:KFyB1dK8_w5E5MY7EVSp@git.garena.com/shopee/MLP/aip/llm-sys/benchmarks-llm.git
+[submodule "scripts/evalutions"]
+	path = scripts/evalutions
+	url = https://gitlab+deploy-token-1266:rWXtiHgdrzX9TLxXUx4J@git.garena.com/shopee/MLP/aip/llm-sys/llm-evalutions.git
+[submodule "scripts/llvm-evaluation"]
+	path = scripts/llvm-evaluation
+	url = https://gitlab+deploy-token-1272:TYfwXFg7ugebdS_DceXU@git.garena.com/shopee/MLP/aip/llm-sys/llvm-evalution.git

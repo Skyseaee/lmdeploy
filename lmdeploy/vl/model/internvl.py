@@ -74,8 +74,9 @@ class InternVLVisionModel(VisonModel):
                  with_llm: bool = False,
                  max_memory: Dict[int, int] = None,
                  hf_config: AutoConfig = None,
-                 backend: str = ''):
-        super().__init__(model_path, with_llm, max_memory, hf_config, backend)
+                 backend: str = '',
+                 default_device='auto'):
+        super().__init__(model_path, with_llm, max_memory, hf_config, backend, default_device)
 
     def build_preprocessor(self):
         self.config = self.hf_config

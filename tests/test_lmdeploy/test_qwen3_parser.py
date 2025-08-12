@@ -301,7 +301,7 @@ def test_parser_stream(text_sequence: List[str], expects: List[TestExpects]):
     tokenizer = DummyTokenizer()
     VariableInterface.tool_parser = Qwen3ToolParser(tokenizer=tokenizer)
     VariableInterface.reasoning_parser = QwenQwQReasoningParser(tokenizer=tokenizer)
-    request = ChatCompletionRequest(model='qwen', messages=[], stream=True)
+    request = ChatCompletionRequest(model='qwen', messages=[], stream=True, tool_choice='auto')
     content, reasoning_content, tool_calls = _stream_parse(request, text_sequence)
     assert len(tool_calls) == len(expects)
     for parsed_call, expected_call in zip(tool_calls, expects):
@@ -321,7 +321,7 @@ def test_parser_nonstream(text_sequence: List[str], expects: List[TestExpects]):
     tokenizer = DummyTokenizer()
     VariableInterface.tool_parser = Qwen3ToolParser(tokenizer=tokenizer)
     VariableInterface.reasoning_parser = QwenQwQReasoningParser(tokenizer=tokenizer)
-    resp: ChatCompletionResponse = _chat_completion_v1(ChatCompletionRequest(model='qwen', messages=[], stream=False),
+    resp: ChatCompletionResponse = _chat_completion_v1(ChatCompletionRequest(model='qwen', messages=[], stream=False, tool_choice='auto'),
                                                        text_sequence)
 
     assert len(resp.choices) == 1
@@ -351,7 +351,7 @@ def test_no_think_nonstream():
     tokenizer = DummyTokenizer()
     VariableInterface.tool_parser = Qwen3ToolParser(tokenizer=tokenizer)
     VariableInterface.reasoning_parser = QwenQwQReasoningParser(tokenizer=tokenizer)
-    resp: ChatCompletionResponse = _chat_completion_v1(ChatCompletionRequest(model='qwen', messages=[], stream=False),
+    resp: ChatCompletionResponse = _chat_completion_v1(ChatCompletionRequest(model='qwen', messages=[], stream=False, tool_choice='auto'),
                                                        text_sequence)
 
     assert len(resp.choices) == 1

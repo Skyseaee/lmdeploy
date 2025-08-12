@@ -137,6 +137,16 @@ class LlamaModel(BaseInputModel):
             max_position_embeddings = int(model_arg.get('max_position_embeddings', 0))
             rope_param = RopeParam(type='default', base=rope_theta, dim=head_dim)
             rope_scaling = model_arg.get('rope_scaling', None)
+            scaling_factor = 0.0
+            use_dynamic_ntk = 0
+            scaling_type = ''
+            low_freq_factor = 1.0
+            high_freq_factor = 1.0
+            attention_factor = -1.0
+            beta_fast = 32.0
+            beta_slow = 1.0
+            mrope_section = None
+            original_max_position_embeddings = 0
             if isinstance(rope_scaling, dict):
                 llama2_scaling_type = rope_scaling.get('type', '')
                 llama3_scaling_type = rope_scaling.get('rope_type', '')
@@ -174,16 +184,39 @@ class LlamaModel(BaseInputModel):
                                                attention_factor=attention_factor,
                                                beta_fast=beta_fast,
                                                beta_slow=beta_slow)
+                elif scaling_type == 'mrope':
+                    mrope_section = rope_scaling.get('mrope_section', [16, 24, 24])
                 else:
                     raise RuntimeError(f'Unsupported rope type: {scaling_type}')
 
-        return dict(size_per_head=head_dim,
-                    num_layer=num_layer,
-                    norm_eps=norm_eps,
-                    head_num=attn_head_num,
-                    kv_head_num=kv_head_num,
-                    hidden_units=hidden_units,
-                    inter_size=inter_size,
-                    vocab_size=vocab_size,
-                    max_position_embeddings=max_position_embeddings,
-                    rope_param=rope_param)
+            # get tie_word_embeddings, use_normhead
+            tie_word_embeddings = model_arg.get('tie_word_embeddings', 0)
+            use_normhead = model_arg.get('use_normhead', 0)
+            use_logn_attn = model_arg.get('use_logn_attn', 0)
+
+        return dict(
+            size_per_head=head_dim,
+            rotary_embedding=hidden_units // attn_head_num,
+            num_layer=num_layer,
+            norm_eps=norm_eps,
+            head_num=attn_head_num,
+            kv_head_num=kv_head_num,
+            hidden_units=hidden_units,
+            inter_size=inter_size,
+            vocab_size=vocab_size,
+            rope_theta=rope_theta,
+            max_position_embeddings=max_position_embeddings,
+            original_max_position_embeddings=original_max_position_embeddings,
+            use_dynamic_ntk=use_dynamic_ntk,
+            rope_scaling_type=scaling_type,
+            rope_scaling_factor=scaling_factor,
+            mrope_section=mrope_section,
+            low_freq_factor=low_freq_factor,
+            high_freq_factor=high_freq_factor,
+            attention_factor=attention_factor,
+            beta_fast=beta_fast,
+            beta_slow=beta_slow,
+            tie_word_embeddings=tie_word_embeddings,
+            use_normhead=use_normhead,
+            use_logn_attn=use_logn_attn,
+            rope_param=rope_param)

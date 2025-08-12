@@ -19,6 +19,7 @@ LAYER_TYPE_MAP = {
     'QWenLMHeadModel': 'QWenBlock',
     'Qwen2ForCausalLM': 'Qwen2DecoderLayer',
     'Qwen3ForCausalLM': 'Qwen3DecoderLayer',
+    'Qwen3MoeForCausalLM': 'Qwen3MoeDecoderLayer',
     'BaiChuanForCausalLM': 'DecoderLayer',  # Baichuan 7B
     'BaichuanForCausalLM': 'DecoderLayer',  # Baichuan2 7B
     'LlamaForCausalLM': 'LlamaDecoderLayer',
@@ -31,6 +32,8 @@ LAYER_TYPE_MAP = {
     'Qwen2VLForConditionalGeneration': 'Qwen2VLDecoderLayer',
     'Qwen2_5_VLForConditionalGeneration': 'Qwen2_5_VLDecoderLayer',
     'MistralForCausalLM': 'MistralDecoderLayer',
+    'CompassForCausalLM': 'CompassDecoderLayer',
+    'CompassMoeForCausalLM': 'CompassMoeDecoderLayer',
 }
 
 NORM_TYPE_MAP = {
@@ -40,6 +43,7 @@ NORM_TYPE_MAP = {
     'QWenLMHeadModel': 'RMSNorm',
     'Qwen2ForCausalLM': 'Qwen2RMSNorm',
     'Qwen3ForCausalLM': 'Qwen3RMSNorm',
+    'Qwen3MoeForCausalLM': 'Qwen3MoeRMSNorm',
     'BaiChuanForCausalLM': 'RMSNorm',  # Baichuan 7B
     'BaichuanForCausalLM': 'RMSNorm',  # Baichuan2 7B
     'LlamaForCausalLM': 'LlamaRMSNorm',
@@ -52,6 +56,8 @@ NORM_TYPE_MAP = {
     'Qwen2VLForConditionalGeneration': 'Qwen2RMSNorm',
     'Qwen2_5_VLForConditionalGeneration': 'Qwen2RMSNorm',
     'MistralForCausalLM': 'MistralRMSNorm',
+    'CompassForCausalLM': 'CompassRMSNorm',
+    'CompassMoeForCausalLM': 'CompassMoeRMSNorm',
 }
 
 HEAD_NAME_MAP = {
@@ -61,6 +67,7 @@ HEAD_NAME_MAP = {
     'QWenLMHeadModel': 'lm_head',
     'Qwen2ForCausalLM': 'lm_head',
     'Qwen3ForCausalLM': 'lm_head',
+    'Qwen3MoeForCausalLM': 'lm_head',
     'BaiChuanForCausalLM': 'lm_head',  # Baichuan 7B
     'BaichuanForCausalLM': 'lm_head',  # Baichuan2 7B
     'LlamaForCausalLM': 'lm_head',
@@ -73,6 +80,8 @@ HEAD_NAME_MAP = {
     'Qwen2VLForConditionalGeneration': 'lm_head',
     'Qwen2_5_VLForConditionalGeneration': 'lm_head',
     'MistralForCausalLM': 'lm_head',
+    'CompassForCausalLM': 'lm_head',
+    'CompassMoeForCausalLM': 'lm_head',
 }
 
 
@@ -168,6 +177,11 @@ def update_moe_mapping(model, model_type):
     """Update moe mapping."""
     from lmdeploy.lite.quantization.awq import FC_FCS_MAP, NORM_FCS_MAP
 
+    if model_type == "CompassMoeForCausalLM" and model.config.num_experts == 16:
+        # compass-max, the layer mapping is same to Mixtral
+        FC_FCS_MAP["CompassMoeDecoderLayer"] = FC_FCS_MAP["MixtralDecoderLayer"]
+        NORM_FCS_MAP["CompassMoeDecoderLayer"] = NORM_FCS_MAP["MixtralDecoderLayer"]
+
     # get experts num
     num_experts = 0
     for n, m in model.named_modules():
@@ -206,7 +220,8 @@ def calibrate(model: str,
               w_group_size: int = 128,
               search_scale: bool = False,
               dtype: Literal['float16', 'bfloat16', 'auto'] = 'auto',
-              batch_size: int = 1) -> None:
+              batch_size: int = 1,
+              **kwargs) -> None:
     """The main function for loading the model and performing calibration on a
     given dataset.
 
@@ -237,10 +252,11 @@ def calibrate(model: str,
         work_dir (str): The working directory for outputs.
     """
 
-    assert calib_dataset in ['c4', 'ptb', 'wikitext2', 'pileval'], \
-        'Support only `c4`, `ptb`, `wikitext2` or `pileval`.'
+    assert calib_dataset in ['c4', 'ptb', 'wikitext2', 'pileval', 'llvm', 'ultrachat_2k'], \
+        'Support only `c4`, `ptb`, `wikitext2` or `pileval`, `llvm`, `ultrachat_2k`.'
 
     model_type, _ = get_task(model)
+    kwargs['model_path'] = model
     make_compatible_internvl_config(model)
 
     # Load tokenizer and configuration
@@ -275,7 +291,8 @@ def calibrate(model: str,
                            f'not supported. The supported model types are '
                            f"{', '.join(LAYER_TYPE_MAP.keys())}.")
 
-    if model_type in ['MixtralForCausalLM']:
+    if model_type in ['MixtralForCausalLM', 'CompassMoeForCausalLM',
+                      'Qwen3MoeForCausalLM']:
         update_moe_mapping(model, model_type)
 
     if model_type == 'QWenLMHeadModel':
@@ -292,7 +309,11 @@ def calibrate(model: str,
     _prepare_for_calibrate(model, layer_type, HEAD_NAME_MAP[type(model).__name__], device)
 
     print('Loading calibrate dataset ...')
-    calib_loader, _ = get_calib_loaders(calib_dataset, tokenizer, nsamples=calib_samples, seqlen=calib_seqlen)
+    calib_loader, _ = get_calib_loaders(calib_dataset,
+                                        tokenizer,
+                                        nsamples=calib_samples,
+                                        seqlen=calib_seqlen,
+                                        **kwargs)
 
     # Initialize calibration context
     if search_scale:
@@ -314,8 +335,16 @@ def calibrate(model: str,
                                        device=device)
 
     with calib_ctx:
-        all_data = torch.cat([data if isinstance(data, torch.Tensor) else data[0] for data in calib_loader]).to(device)
-        calib_ctx.calibrate(all_data)
+        all_data = torch.cat([
+            data if isinstance(data, torch.Tensor) else data[0]
+            for data in calib_loader
+        ]).to(device)
+        if calib_dataset == 'llvm':
+            all_embeddings = torch.cat([
+                data if isinstance(data, torch.Tensor) else data[1]
+                for data in calib_loader]).to(device)
+            all_data = {'data': all_data, 'embeddings': all_embeddings}
+        calib_ctx.calibrate(all_data, calib_dataset)
 
     # Create work directory if not exists
     work_dir = Path(work_dir)

@@ -4,10 +4,12 @@ import asyncio
 import copy
 import json
 import os
+import json
 import time
 from functools import partial
 from http import HTTPStatus
 from typing import AsyncGenerator, Dict, List, Literal, Optional, Union
+from types import SimpleNamespace
 
 import uvicorn
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
@@ -17,6 +19,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.security.http import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.middleware.base import BaseHTTPMiddleware
+from sse_starlette.sse import ServerSentEvent, EventSourceResponse
+from aipinfer import logger
 
 from lmdeploy.archs import get_task
 from lmdeploy.messages import GenerationConfig, LogitsProcessor, PytorchEngineConfig, TurbomindEngineConfig
@@ -37,11 +41,9 @@ from lmdeploy.serve.openai.protocol import (ChatCompletionRequest, ChatCompletio
 from lmdeploy.serve.openai.reasoning_parser.reasoning_parser import ReasoningParser, ReasoningParserManager
 from lmdeploy.serve.openai.tool_parser.tool_parser import ToolParser, ToolParserManager
 from lmdeploy.tokenizer import DetokenizeState, Tokenizer
-from lmdeploy.utils import get_logger
-
+# from lmdeploy.utils import get_logger
 # yapf: enable
-
-logger = get_logger('lmdeploy')
+# logger = get_logger('lmdeploy')
 
 
 class VariableInterface:
@@ -303,6 +305,7 @@ async def chat_completions_v1(raw_request: Request = None):
     - stream_options: Options for streaming response. Only set this when you
         set stream: true.
     - max_tokens (int | None): output token nums. Default to None.
+    - max_completion_tokens (int | None): output token nums. Default to None.
     - repetition_penalty (float): The parameter for repetition penalty.
         1.0 means no penalty
     - stop (str | List[str] | None): To stop generating further
@@ -389,8 +392,8 @@ async def chat_completions_v1(raw_request: Request = None):
 
     random_seed = request.seed if request.seed else None
 
-    gen_config = GenerationConfig(max_new_tokens=request.max_tokens,
-                                  do_sample=True,
+    gen_config = GenerationConfig(max_new_tokens=request.max_completion_tokens or request.max_tokens,
+                                  do_sample=request.do_sample,
                                   logprobs=gen_logprobs,
                                   top_k=request.top_k,
                                   top_p=request.top_p,
@@ -408,7 +411,6 @@ async def chat_completions_v1(raw_request: Request = None):
                                   migration_request=migration_request,
                                   with_cache=with_cache,
                                   preserve_cache=preserve_cache)
-
     tools = None
     if request.tools and request.tool_choice != 'none':
         gen_config.skip_special_tokens = False
@@ -422,6 +424,13 @@ async def chat_completions_v1(raw_request: Request = None):
             tools = [item.function.model_dump() for item in request.tools]
     # text completion for string input
     do_preprocess = False if isinstance(request.messages, str) else request.do_preprocess
+    chat_template_kwargs = request.chat_template_kwargs
+    enable_thinking = True
+    if chat_template_kwargs and isinstance(chat_template_kwargs, dict):
+        enable_thinking = chat_template_kwargs.get('enable_thinking', True)
+    # request.enable_thinking has higer priority than chat_template_kwargs
+    if hasattr(request, 'enable_thinking') and request.enable_thinking is not None:
+        enable_thinking = request.enable_thinking
     result_generator = VariableInterface.async_engine.generate(
         request.messages,
         request.session_id,
@@ -432,7 +441,7 @@ async def chat_completions_v1(raw_request: Request = None):
         sequence_end=True,
         do_preprocess=do_preprocess,
         adapter_name=adapter_name,
-        enable_thinking=request.enable_thinking,
+        enable_thinking=enable_thinking
     )
 
     def create_stream_response_json(index: int,
@@ -498,7 +507,7 @@ async def chat_completions_v1(raw_request: Request = None):
                         streaming_tools = True
             elif request.tool_choice != 'none' and request.tools is not None and VariableInterface.tool_parser is None:
                 logger.error('Please launch the api_server with --tool-call-parser if you want to use tool.')
-            if VariableInterface.reasoning_parser is not None:
+            if VariableInterface.reasoning_parser is not None and enable_thinking:
                 reasoning_delta = VariableInterface.reasoning_parser.extract_reasoning_content_streaming(
                     previous_text=previous_text,
                     current_text=current_text,
@@ -564,7 +573,7 @@ async def chat_completions_v1(raw_request: Request = None):
     elif request.tool_choice != 'none' and request.tools is not None and VariableInterface.tool_parser is None:
         logger.error('Please launch the api_server with --tool-call-parser if you want to use tool.')
 
-    if VariableInterface.reasoning_parser is not None:
+    if VariableInterface.reasoning_parser is not None and enable_thinking:
         reasoning_content, text = VariableInterface.reasoning_parser.extract_reasoning_content(text, request)
 
     logprobs = None
@@ -684,7 +693,7 @@ async def completions_v1(raw_request: Request = None):
     random_seed = request.seed if request.seed else None
 
     gen_config = GenerationConfig(max_new_tokens=request.max_tokens if request.max_tokens else 512,
-                                  do_sample=True,
+                                  do_sample=request.do_sample,
                                   logprobs=request.logprobs,
                                   top_k=request.top_k,
                                   top_p=request.top_p,
@@ -974,6 +983,7 @@ async def free_cache(raw_request: Request) -> JSONResponse:
 """ PD Disaggregation API End """
 
 
+@router.post('/generate', dependencies=[Depends(check_api_key)])
 @router.post('/v1/chat/interactive', dependencies=[Depends(check_api_key)])
 async def chat_interactive_v1(request: GenerateRequest, raw_request: Request = None):
     """Generate completion for the request.
@@ -984,7 +994,7 @@ async def chat_interactive_v1(request: GenerateRequest, raw_request: Request = N
     `interactive_mode = False`.
 
     The request should be a JSON object with the following fields:
-    - prompt: the prompt to use for the generation.
+    - question: the prompt to use for the generation.
     - image_url(str | List[str] | None): the image url or base64 encoded string
         for VL models.
     - session_id: determine which instance will be called. If not specified
@@ -1019,99 +1029,141 @@ async def chat_interactive_v1(request: GenerateRequest, raw_request: Request = N
         selective as setting `top_p` in the 0.99-0.8 range (use the
         opposite of normal `top_p` values)
     """
-    if request.cancel:
-        if request.session_id != -1:
-            await VariableInterface.async_engine.stop_session(request.session_id)
-            return {'text': '', 'tokens': 0, 'input_tokens': 0, 'history_tokens': 0, 'finish_reason': 'stop'}
+    # Notice: LmDeploy change interface from instance_id to session_id
+    session_id = request.data.get('instance_id', -1)
+    cancel = request.data.get('cancel', False)
+    if cancel:
+        if session_id != -1:
+            await VariableInterface.async_engine.stop_session(
+                session_id)
+            ret = {
+                'traceid': request.traceid,
+                'text': '',
+                'input_tokens': 0,
+                'generated_tokens': 0,
+                'history_tokens': 0,
+                'cost_time': 0.0,
+                'finish_reason': 'stop'
+            }
+            return JSONResponse(ret)
         else:
-            return create_error_response(HTTPStatus.BAD_REQUEST, 'please set a session_id to cancel a request')
-    error_check_ret = await check_request(request)
+            return create_error_response(
+                HTTPStatus.BAD_REQUEST,
+                'please set a instance_id to cancel a request')
+    error_check_ret = await check_request(SimpleNamespace(**request.data))
     if error_check_ret is not None:
         return error_check_ret
-    if request.session_id == -1:
+    if session_id == -1:
         VariableInterface.session_id += 1
-        request.session_id = VariableInterface.session_id
+        session_id = VariableInterface.session_id
 
     async_engine = VariableInterface.async_engine
-    sequence_start = async_engine.id2step.get(request.session_id, 0) == 0
-    sequence_end = not request.interactive_mode
-    if isinstance(request.stop, str):
-        request.stop = [request.stop]
-
-    end_session = sequence_end and request.prompt == '' and request.request_output_len == 0
+    sequence_start = async_engine.id2step.get(session_id, 0) == 0
+    sequence_end = not request.data.get('interactive_mode', False)
+    end_session = sequence_end and request.data.get('question', '') == '' and request.data.get('output_len', 512) == 0
     if end_session:
-        await async_engine.end_session(request.session_id)
-        return JSONResponse(dict(text='', tokens=0, input_tokens=0, history_tokens=0, finish_reason='stop'))
+        await async_engine.end_session(session_id)
+        return JSONResponse(dict(traceid=request.traceid, text='', tokens=0, input_tokens=0, history_tokens=0, finish_reason='stop'))
 
-    random_seed = request.seed if request.seed else None
+    # logger.warn(f"len(async_engine.id2inst): {len(async_engine.id2inst)}")
+    if session_id == -1 or (sequence_start and session_id in async_engine.id2inst):
+        while session_id in async_engine.id2inst:
+            VariableInterface.session_id += 1
+            session_id = VariableInterface.session_id
 
-    gen_config = GenerationConfig(max_new_tokens=request.request_output_len,
-                                  do_sample=True,
-                                  top_p=request.top_p,
-                                  top_k=request.top_k,
-                                  temperature=request.temperature,
-                                  repetition_penalty=request.repetition_penalty,
-                                  ignore_eos=request.ignore_eos,
-                                  stop_words=request.stop,
-                                  skip_special_tokens=request.skip_special_tokens,
-                                  spaces_between_special_tokens=request.spaces_between_special_tokens,
-                                  min_new_tokens=request.min_new_tokens,
-                                  min_p=request.min_p,
-                                  random_seed=random_seed)
-    if request.image_url:
+    if isinstance(request.data.get('stop', None), str):
+        request.data['stop'] = [request.data.get('stop', None)]
+
+    gen_config = GenerationConfig(
+        max_new_tokens=request.data.get('output_len', 512),
+        do_sample=request.data.get('do_sample', True),
+        top_p=request.data.get('top_p', 0.85),
+        top_k=request.data.get('top_k', 5),
+        temperature=request.data.get('temperature', 0.7),
+        repetition_penalty=request.data.get('repetition_penalty', 1.1),
+        ignore_eos=request.data.get('ignore_eos', False),
+        stop_words=request.data.get('stop', None),
+        skip_special_tokens=request.data.get('skip_special_tokens', True),
+        spaces_between_special_tokens=request.data.get('spaces_between_special_tokens', True),
+        min_new_tokens=request.data.get('min_new_tokens', None),
+        min_p=request.data.get('min_p', 0),
+        random_seed=request.data.get('random_seed', 42)
+    )
+
+    image_url = request.data.get('image_url', None)
+    if image_url:
+        request_prompt = request.data.get('question', '')
         from lmdeploy.vl import load_image
-        if isinstance(request.image_url, List):
-            request.prompt = (request.prompt, [load_image(url) for url in request.image_url])
+        if isinstance(image_url, List):
+            request_prompt = (request_prompt,
+                              [load_image(url) for url in image_url])
         else:
-            request.prompt = (request.prompt, load_image(request.image_url))
+            request_prompt = (request_prompt, load_image(image_url))
         if not hasattr(async_engine, '_convert_prompts'):
             return create_error_response(HTTPStatus.BAD_REQUEST, '`image_url` argument only works for VL model')
-        request.prompt = async_engine._convert_prompts(request.prompt)
+        request.data['question'] = async_engine._convert_prompts(request_prompt)
     generation = async_engine.generate(
-        request.prompt,
-        request.session_id,
+        request.data.get('question', ''),
+        session_id,
         gen_config=gen_config,
         stream_response=True,  # always use stream to enable batching
         sequence_start=sequence_start,
         sequence_end=sequence_end,
-        adapter_name=request.adapter_name)
+        do_preprocess=request.data.get('do_preprocess', False),  # do not apply chat-template by default
+        adapter_name=request.data.get('adapter_name', None),
+        traceid=request.traceid)
 
     # Streaming case
     async def stream_results() -> AsyncGenerator[bytes, None]:
         async for out in generation:
-            chunk = GenerateResponse(text=out.response,
-                                     tokens=out.generate_token_len,
+            chunk = GenerateResponse(traceid=request.traceid,
+                                     text=out.response,
                                      input_tokens=out.input_token_len,
+                                     generated_tokens=out.generate_token_len,
                                      history_tokens=out.history_token_len,
+                                     cost_time=out.cost_time,
                                      finish_reason=out.finish_reason)
-            data = chunk.model_dump_json()
-            yield f'{data}\n'
 
-    if request.stream:
-        return StreamingResponse(stream_results(), media_type='text/event-stream')
-    else:
-        ret = {}
-        text = ''
-        tokens, input_tokens, history_tokens = 0, 0, 0
-        finish_reason = None
-        async for out in generation:
-            if await raw_request.is_disconnected():
-                # Abort the request if the client disconnects.
-                await async_engine.stop_session(request.session_id)
-                return create_error_response(HTTPStatus.BAD_REQUEST, 'Client disconnected')
-            text += out.response
-            tokens = out.generate_token_len
-            input_tokens = out.input_token_len
-            history_tokens = out.history_token_len
-            finish_reason = out.finish_reason
-        ret = {
-            'text': text,
-            'tokens': tokens,
-            'input_tokens': input_tokens,
-            'history_tokens': history_tokens,
-            'finish_reason': finish_reason
-        }
-        return JSONResponse(ret)
+            # data = chunk.model_dump_json()
+            # yield f'{data}\n'
+            yield ServerSentEvent(json.dumps(chunk.dict(), ensure_ascii=False))
+    try:
+        if request.data.get('stream', False):
+            # return StreamingResponse(stream_results(),
+            #                          media_type='text/event-stream')
+            return EventSourceResponse(stream_results())
+        else:
+            ret = {}
+            text = ''
+            tokens, input_tokens, history_tokens = 0, 0, 0
+            finish_reason = None
+            async for out in generation:
+                if await raw_request.is_disconnected():
+                    # Abort the request if the client disconnects.
+                    await async_engine.stop_session(session_id)
+                    return create_error_response(HTTPStatus.BAD_REQUEST, 'Client disconnected')
+                text += out.response
+                tokens = out.generate_token_len
+                input_tokens = out.input_token_len
+                history_tokens = out.history_token_len
+                finish_reason = out.finish_reason
+            ret = GenerateResponse(traceid=request.traceid,
+                                   text=text,
+                                   input_tokens=input_tokens,
+                                   generated_tokens=tokens,
+                                   history_tokens=history_tokens,
+                                   cost_time=out.cost_time,
+                                   finish_reason=finish_reason
+                                   )
+            return JSONResponse(ret.dict())
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.exception(exc)
+        ret = GenerateResponse(traceid=request.traceid,
+                               text="",
+                               err_msg=str(exc),
+                               err_num=1000
+                               )
+        return JSONResponse(ret.dict())
 
 
 def handle_torchrun():
@@ -1277,7 +1329,7 @@ def serve(model_path: str,
     """
     if os.getenv('TM_LOG_LEVEL') is None:
         os.environ['TM_LOG_LEVEL'] = log_level
-    logger.setLevel(log_level)
+    # logger.set_logger(log_level)
 
     if disable_fastapi_docs:
         app = FastAPI(
@@ -1316,9 +1368,18 @@ def serve(model_path: str,
         http_or_https = 'https'
 
     handle_torchrun()
+    if kwargs.get("vision_config") == None:
+        from lmdeploy.messages import VisionConfig
+        kwargs["vision_config"] =  VisionConfig(max_batch_size=int(kwargs.get("vision_max_batch_size", 1)),
+                                                instance_num=int(kwargs.get("vision_instance_num", 1)))
+
     _, pipeline_class = get_task(model_path)
     if isinstance(backend_config, PytorchEngineConfig):
         backend_config.enable_mp_engine = True
+    if not chat_template_config and kwargs.get("chat_template"):
+        v = kwargs.pop("chat_template")
+        chat_template_config = ChatTemplateConfig.from_json(v)
+            
     VariableInterface.async_engine = pipeline_class(model_path=model_path,
                                                     model_name=model_name,
                                                     backend=backend,

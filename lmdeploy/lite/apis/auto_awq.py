@@ -8,6 +8,7 @@ from typing import Literal
 import torch
 from torch import nn
 
+from lmdeploy.archs import get_model_arch
 from lmdeploy.lite.quantization.awq import FC_FCS_MAP, NORM_FCS_MAP, awq_layers, quant_weights, smooth_layers
 from lmdeploy.lite.utils import collect_target_modules
 from lmdeploy.utils import try_import_deeplink
@@ -16,10 +17,27 @@ from .calibrate import LAYER_TYPE_MAP, calibrate
 
 
 def save_vl_model(vl_model, model_path, dst_path):
-    vl_model.save_pretrained(dst_path, safe_serialization=True)
+    safe_serialization = type(vl_model).__name__ == 'MGMLlamaForCausalLM'
+    vl_model.save_pretrained(dst_path,
+                             max_shard_size='2GB',
+                             safe_serialization=safe_serialization)
+
+    # save custom defined model code script
+    remote_code_list = []
+    if type(vl_model).__name__  == "CompassLLVM":
+        remote_code_list = [ "configuration_compass.py", "modeling_compass.py",
+                    "configuration_compassllvm.py", "modeling_compassllvm.py",
+                    "tokenizer_compass.py"]
+    else:
+        from glob import glob
+        remote_code_list = [osp.basename(name) for name in glob(osp.join(model_path, '*.py'))]
+
+    # config + code + template
     candidate = [
-        'preprocessor_config.json', 'processor_config.json', 'vit', 'generation_config.json', 'added_tokens.json'
-    ]
+        'preprocessor_config.json', 'processor_config.json', 'vit',
+        'generation_config.json', 'added_tokens.json'
+    ] + remote_code_list + ['chat_template.json']
+
     for name in candidate:
         tmp_path = osp.join(model_path, name)
         if osp.exists(tmp_path):
@@ -51,7 +69,8 @@ def auto_awq(model: str,
              device: str = 'cuda',
              revision: str = None,
              dtype: Literal['float16', 'bfloat16', 'auto'] = 'auto',
-             download_dir: str = None):
+             download_dir: str = None,
+             **kwargs):
     """Perform weight quantization using AWQ algorithm.
 
     Args:
@@ -83,6 +102,7 @@ def auto_awq(model: str,
         from lmdeploy.utils import get_model
         model = get_model(model, revision=revision, download_dir=download_dir)
     model_path = model
+    tie_embeddings = get_model_arch(model)[1].tie_word_embeddings
     vl_model, model, tokenizer, work_dir = calibrate(model,
                                                      calib_dataset,
                                                      calib_samples,
@@ -93,9 +113,11 @@ def auto_awq(model: str,
                                                      w_group_size=w_group_size,
                                                      search_scale=search_scale,
                                                      dtype=dtype,
-                                                     batch_size=batch_size)
+                                                     batch_size=batch_size,
+                                                     **kwargs)
 
     layer_type = LAYER_TYPE_MAP[type(model).__name__]
+
     fc2fcs = FC_FCS_MAP[layer_type]
     norm2fcs = NORM_FCS_MAP[layer_type]
     input_stats = torch.load(osp.join(work_dir, 'inputs_stats.pth'))
@@ -118,6 +140,7 @@ def auto_awq(model: str,
                                bits=w_bits,
                                group_size=w_group_size,
                                zero_point=not w_sym)
+    model.config.update({'tie_word_embeddings': tie_embeddings})
     model.config.update(dict(quantization_config=quantization_config))
 
     if vl_model:

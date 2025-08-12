@@ -81,6 +81,8 @@ _SUPPORTED_ARCHS = dict(
     InternLM3ForCausalLM=True,
     # internvl3
     InternVLForConditionalGeneration=True,
+    # compassllvm
+    CompassLLVM=True,
 )
 
 

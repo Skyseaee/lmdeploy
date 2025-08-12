@@ -2,14 +2,16 @@
 import dataclasses
 import json
 import uuid
+import os
 from abc import abstractmethod
 from typing import List, Literal, Optional, Union
 
 from mmengine import Registry
 
-from lmdeploy.utils import get_logger
+# from lmdeploy.utils import get_logger
 
-logger = get_logger('lmdeploy')
+# logger = get_logger('lmdeploy')
+from aipinfer import logger
 MODELS = Registry('model', locations=['lmdeploy.model'])
 
 
@@ -71,8 +73,9 @@ class ChatTemplateConfig:
         if self.model_name in MODELS.module_dict.keys():
             model: BaseModel = MODELS.get(self.model_name)(**attrs)
         else:
-            logger.warning(f'Could not find {self.model_name} in registered models. '
-                           f'Register {self.model_name} using the BaseChatTemplate.')
+            logger.warn(
+                f'Could not find {self.model_name} in registered models. '
+                f'Register {self.model_name} using the BaseChatTemplate.')
             model = BaseChatTemplate(**attrs)
         return model
 
@@ -107,7 +110,6 @@ class ChatTemplateConfig:
 
 
 @MODELS.register_module(name='llama')
-@MODELS.register_module(name='base')
 class BaseModel:
     """Base model."""
 
@@ -154,6 +156,7 @@ class BaseModel:
         return None
 
 
+@MODELS.register_module(name='base')
 class BaseChatTemplate(BaseModel):
     """Base Chat template."""
 
@@ -232,6 +235,146 @@ class BaseChatTemplate(BaseModel):
             return ret[:-len(eox_map['assistant'])]  # prefix of response
         ret += f'{self.assistant}'
         return ret
+
+@MODELS.register_module(name=['compass-max', 'compass-smoe'])
+class CompassSMoeLLM(BaseModel):
+    """Chat template and generation parameters of CompassLLM models."""
+
+    def __init__(self,
+                 temperature=0.3,
+                 top_k=5,
+                 top_p=0.85,
+                 repetition_penalty=1.15,
+                 stop_words=['</s>'],
+                 session_len=4096,
+                 **kwargs):
+        super().__init__(temperature=temperature,
+                         top_k=top_k,
+                         top_p=top_p,
+                         repetition_penalty=repetition_penalty,
+                         stop_words=stop_words,
+                         **kwargs)
+
+        # self.system = "You are a helpful, honest, and harmless AI assistant whose name is CompassLLM independently developed by Shopee."
+        self.system = 'You are a smart, helpful, honest, and harmless AI assistant whose name is CompassLLM independently developed by Shopee. You should response with markdown format when you write a document.'
+        self.user = '<Human>'
+        self.assistant = '<AI>'
+        self.separators = [" ", "</s> "]
+        # max retrieval context tokens
+        self.max_context_tok = 512
+        self.stop_words = stop_words
+        self.session_len = session_len
+        self.max_history_tok = int(self.session_len * 0.25)
+
+    def get_prompt(self, prompt, sequence_start=True):
+        """Return the prompt that is concatenated with other elements in the
+        chat template.
+
+        Args:
+            prompt (str): user's input prompt
+            sequence_start (bool): indicator for the first round chat of a
+               session sequence
+        Returns:
+            str: the concatenated prompt
+        """
+        assert self.capability == 'chat', \
+            f'{type(self).__name__} has no capability of {self.capability}'
+        return self.user + ":" + prompt + self.assistant + ":"
+
+    def messages2prompt(
+            self,
+            messages,
+            sequence_start=True,
+            use_default_template=True,
+            tokenizer=None,
+            tools=None,
+            model_version=None,
+            **kwargs
+        ):
+        """Return the prompt that is concatenated with other elements in the
+        chat template.
+
+        Args:
+            messages (str | List): user's input prompt
+        Returns:
+            str: the concatenated prompt
+        """
+        if isinstance(messages, str):
+            return messages if not use_default_template else self.get_prompt(messages, sequence_start)
+        assert isinstance(messages, list), "messages must be a list of dictionaries"
+        system, users, assistants, contexts = None, [], [], []
+        for message in messages:
+            role = message.get('role')
+            content = message.get('content')
+            if role == 'system':
+                system = content
+            elif role == 'user':
+                users.append(content)
+            elif role == 'tool':
+                users.append(f"<Observation>{content}")
+            elif role == 'assistant':
+                if content is None and 'tool_calls' in message:
+                    tool_calls = [json.dumps(call.get('function', {})) for call in message['tool_calls']]
+                    assistants.append("<Function>[" + ','.join(tool_calls) + "]")
+                else:
+                    assistants.append(content)
+            elif role == 'context':
+                contexts.append(content)
+            else:
+                raise ValueError(f"Unknown role: {role}")
+
+        prompt = ""
+        # Only use the last user message if no template is used
+        if not use_default_template:
+            return users[-1]
+
+        if system is not None and len(system) > 0:
+            # Internal use: when model_version is given, we allow users to revise system prompt,
+            # else we put system message into the first user's content.
+            if model_version:
+                prompt += system
+            else:
+                users[0] = system + users[0]
+                prompt += self.system
+        elif len(self.system) > 0:
+            prompt += self.system
+        else:
+            pass
+
+        last_question = f"{self.user}:{get_text(users[-1])}{self.assistant}:"
+        prompt_enc = tokenizer.encode(prompt + last_question)
+
+        # if system prompt + last question exceeds session length, return it directly
+        if len(prompt_enc) >= self.session_len:
+            return prompt + last_question
+        # Collect history, truncating if necessary, reserverd 512 tokens for generation
+        max_history_tok = min(self.session_len - len(prompt_enc) - 512, self.max_history_tok)
+        if max_history_tok > 0:
+            history = ""
+            for user, assistant in zip(users, assistants):
+                history += f"{self.user}:{user}{self.assistant}:{assistant}{self.separators[1]}"
+            # Truncate history if needed
+            if len(history) > 0:
+                history_tok_cut = tokenizer.encode(history, add_bos=False)[-max_history_tok:]
+                history_cut = tokenizer.decode(history_tok_cut, skip_special_tokens=False)
+                prompt += history_cut + last_question
+            else:
+                prompt += last_question
+        else:
+            prompt += last_question
+        return prompt
+    @classmethod
+    def match(cls, model_path: str) -> Optional[str]:
+        """Return the model_name that was registered to MODELS.
+
+        Args:
+            model_path (str): the model path used for matching.
+        """
+        model_path = model_path.lower()
+        if "compass-smoe" in model_path:
+            return "compass-smoe"
+        if "compass-max" in model_path:
+            return "compass-max"
 
 
 @MODELS.register_module(name=['deepseek-v3'])
@@ -389,9 +532,10 @@ class Vicuna(BaseChatTemplate):
 class Llavav1(Vicuna):
     """Chat template of llava-v1 model."""
 
+    # meta_instruction refer to https://github.com/haotian-liu/LLaVA/blob/main/llava/conversation.py#L242
     def __init__(
             self,
-            meta_instruction="""A chat between a curious human and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the human's questions.""",  # noqa: E501
+            meta_instruction="""A chat between a curious user and an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the user's questions.""",  # noqa: E501
             **kwargs):
         super().__init__(meta_instruction=meta_instruction, **kwargs)
 
@@ -408,6 +552,13 @@ class Llavav1(Vicuna):
             return 'llava-v1'
         elif 'llava-1.5' in path:
             return 'llava-v1'
+
+        cfg_path = os.path.join(model_path, "config.json")
+        if os.path.exists(cfg_path):
+            with open(cfg_path) as f:
+                config = json.load(f)
+                if config["architectures"][0] == "LlavaLlamaForCausalLM":
+                    return 'llava-v1'
 
 
 @MODELS.register_module(name='internlm')
@@ -612,7 +763,8 @@ class InternVL2InternLM2(InternLM2Chat7B):
             if 'internvl2.5' in path or 'internvl2_5' in path:
                 return None
             return 'internvl2-internlm2'
-
+        if 'internvl3' in path:
+            return 'internvl2-internlm2'
 
 @MODELS.register_module(name='internvl2_5')
 class InternVL2_5(InternLM2Chat7B):
@@ -816,6 +968,7 @@ class Llama3(BaseChatTemplate):
         # reject InternVL2-Llama3-76B
         if 'internvl2' in model_path.lower():
             return None
+        # Yakun: v0.5.3 uses 'llama3-' -> 'llama3'
         if 'llama-3-' in model_path.lower() or 'llama3-' in model_path.lower():
             return 'llama3'
 
@@ -1017,6 +1170,7 @@ class Qwen2d5Chat(Qwen7BChat):
         if isinstance(messages, str):
             return self.get_prompt(messages, sequence_start)
         box_map = dict(user=self.user, assistant=self.assistant, system=self.system)
+        eox_map = dict(user=self.eoh, assistant=self.eoa + self.separator, system=self.eosys)
         ret = ''
         tool_prompt = ''
         if tools is not None and len(tools) > 0:
@@ -1037,7 +1191,7 @@ class Qwen2d5Chat(Qwen7BChat):
         for index, message in enumerate(messages):
             if (message['role'] == 'user' or (message['role'] == 'system' and index != 0)
                     or (message['role'] == 'assistant' and message.get('tool_calls') is None)):
-                ret += f"{box_map[message['role']]}{message['content']}{self.eosys}"
+                ret += f"{box_map[message['role']]}{get_text(message['content'])}{eox_map[message['role']]}"
             elif message['role'] == 'assistant':
                 ret += '<|im_start|>assistant'
                 if message.get('content') is not None:
@@ -1118,10 +1272,18 @@ class QwQ(Qwen2d5Chat):
     def __init__(self, meta_instruction='', **kwargs):
         super().__init__(meta_instruction=meta_instruction, **kwargs)
 
-    def messages2prompt(self, messages, sequence_start=True, tools=None, **kwargs):
+    def messages2prompt(self, messages, sequence_start=True, tools=None, tokenizer=None, **kwargs):
         if isinstance(messages, str):
             return self.get_prompt(messages, sequence_start)
-        return super().messages2prompt(messages, sequence_start, tools, **kwargs) + '<think>\n'
+
+        from lmdeploy.tokenizer import HuggingFaceTokenizer
+        if tools is None or len(tools) == 0:
+            if tokenizer and isinstance(tokenizer.model, HuggingFaceTokenizer):
+                hf_tokenizer = getattr(tokenizer.model, "model", None)
+                if hf_tokenizer and hasattr(hf_tokenizer, "apply_chat_template"):
+                    return hf_tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        return super().messages2prompt(messages, sequence_start, tools, tokenizer=tokenizer, **kwargs) + '<think>\n'
+
 
     @classmethod
     def match(cls, model_path: str) -> Optional[str]:
@@ -1141,15 +1303,29 @@ class Qwen3(Qwen2d5Chat):
     def __init__(self, meta_instruction='', **kwargs):
         super().__init__(meta_instruction=meta_instruction, **kwargs)
 
-    def messages2prompt(self, messages, sequence_start=True, tools=None, enable_thinking=None, **kwargs):
+    def messages2prompt(self, messages, sequence_start=True, tools=None, tokenizer=None, enable_thinking = True, **kwargs):
         if isinstance(messages, str):
-            return self.get_prompt(messages, sequence_start)
-        prompt = super().messages2prompt(messages, sequence_start, tools, **kwargs)
+            prompt = self.get_prompt(messages, sequence_start)
+            if enable_thinking is False:
+                prompt += '<think>\n\n</think>\n\n'
+            return prompt
 
+        from lmdeploy.tokenizer import HuggingFaceTokenizer
+        if tools is None or len(tools) == 0:
+            if tokenizer and isinstance(tokenizer.model, HuggingFaceTokenizer):
+                hf_tokenizer = getattr(tokenizer.model, "model", None)
+                if hf_tokenizer and hasattr(hf_tokenizer, "apply_chat_template"):
+                    return hf_tokenizer.apply_chat_template(
+                        messages,
+                        tokenize=False,
+                        add_generation_prompt=True,
+                        enable_thinking=enable_thinking
+                    )
+        prompt = super().messages2prompt(messages, sequence_start, tools, tokenizer=tokenizer, **kwargs)
         if enable_thinking is False:
             prompt += '<think>\n\n</think>\n\n'
-
         return prompt
+
 
     @classmethod
     def match(cls, model_path: str) -> Optional[str]:
@@ -1899,6 +2075,122 @@ class InternVLPhi3(Phi3Instruct):
             return 'internvl-phi3'
 
 
+@MODELS.register_module(name='compassllvm')
+class CompassLLVMChat(BaseChatTemplate):
+    """Chat template of vicuna model."""
+
+    def __init__(
+            self,
+            meta_instruction="",  # noqa: E501
+            eosys='',
+            user='<Human>:',
+            eoh='</s>',
+            assistant='<AI>:',
+            eoa='</s>',
+            stop_words=['</s>'],
+            **kwargs):
+        super().__init__(meta_instruction=meta_instruction,
+                         eosys=eosys,
+                         user=user,
+                         eoh=eoh,
+                         assistant=assistant,
+                         eoa=eoa,
+                         stop_words=stop_words,
+                         **kwargs)
+
+        self.bos_token = "<s>"
+
+    def get_prompt(self, prompt, sequence_start=True):
+        """Return the prompt that is concatenated with other elements in the
+        chat template.
+
+        Args:
+            prompt (str): user's input prompt
+            sequence_start (bool): indicator for the first round chat of a
+               session sequence
+        Returns:
+            str: the concatenated prompt
+        """
+        prompt = super().get_prompt(prompt, sequence_start)
+        if sequence_start:
+            prompt = self.bos_token + prompt
+        return prompt
+
+    @classmethod
+    def match(cls, model_path: str) -> Optional[str]:
+        """Return the model_name that was registered to MODELS.
+
+        Args:
+            model_path (str): the model path used for matching.
+        """
+        # get model_name from modelpath/config.json
+        cfg_path = os.path.join(model_path, "config.json")
+        if os.path.exists(cfg_path):
+            with open(cfg_path) as f:
+                config = json.load(f)
+                if ("model_type" in config and config["model_type"] == "compassllvm") \
+                    or (config["architectures"][0] == "CompassLLVM"):
+                    logger.warn("get model_name from config.json")
+                    if config.get("version", "1.0") == "1.6":
+                        return "compassllvm-1d6"
+                    if config.get("version", "1.0") == "2.0":
+                        return "compassllvm-smoe"
+                    return "compassllvm"
+
+        path = model_path.lower().replace("-", "_")
+        if ("compass" in path and "llvm" in path) or "mllm" in path:
+            if ("1.6" in path) or ("1d6" in path) or ("1_6"  in path):
+                return "compassllvm-1d6"
+            if ("2.0" in path) or ("2_0"  in path):
+                return "compassllvm-smoe"
+            return 'compassllvm'
+
+
+@MODELS.register_module(name='compassllvm-1d6')
+class CompassLLVM1d6Chat(BaseChatTemplate):
+    def __init__(
+            self,
+            system='<s>system\n',
+            meta_instruction="You are the Shopee multimodal large model, named CompassLLVM, developed by the Shopee LLM-MUG team.",  # noqa: E501
+            eosys='</s>\n',
+            user='<s>user\n',
+            eoh='</s>\n',
+            assistant='<s>assistant\n',
+            eoa='</s>',
+            stop_words=['</s>'],
+            **kwargs):
+        super().__init__(system=system,
+                        meta_instruction=meta_instruction,
+                         eosys=eosys,
+                         user=user,
+                         eoh=eoh,
+                         assistant=assistant,
+                         eoa=eoa,
+                         stop_words=stop_words,
+                         **kwargs)
+
+        self.bos_token = "<s>"
+
+    def get_prompt(self, prompt, sequence_start=True):
+        """Return the prompt that is concatenated with other elements in the
+        chat template.
+
+        Args:
+            prompt (str): user's input prompt
+            sequence_start (bool): indicator for the first round chat of a
+               session sequence
+        Returns:
+            str: the concatenated prompt
+        """
+        prompt = super().get_prompt(prompt, sequence_start)
+        if sequence_start:
+            prompt = self.bos_token + prompt
+        return prompt
+
+@MODELS.register_module(name='compassllvm-smoe')
+class CompassLLVMSMoEChat(CompassLLVMChat):
+    pass
+
 @MODELS.register_module(name='molmo')
 class Molmo(BaseChatTemplate):
 
@@ -1978,5 +2270,5 @@ def best_match_model(query: str) -> Optional[str]:
         matched_name = model.match(query)  # cache the result to avoid matching twice
         if matched_name:
             return matched_name
-    logger.warning(f'Did not find a chat template matching {query}.')
+    logger.warn(f'Did not find a chat template matching {query}.')
     return 'base'

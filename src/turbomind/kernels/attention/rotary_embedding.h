@@ -208,12 +208,14 @@ struct LogNScaling {
 
     __device__ static float get_scale(int seq_len, int max_position_embeddings)
     {
-        if (seq_len <= max_position_embeddings) {
-            return 1.f;
-        }
-        else {
-            return log2f(seq_len) / log2f(max_position_embeddings);
-        }
+        // if (seq_len <= max_position_embeddings) {
+        //     return 1.f;
+        // }
+        // else {
+        //     return log2f(seq_len) / log2f(max_position_embeddings);
+        // }
+        // For Shopee-LLM Compass models
+        return 1 + 0.1 * (log2f(seq_len + 1) / log2f(max_position_embeddings));
     }
 
     __device__ LogNScaling(int seq_len, int max_position_embeddings)

@@ -5,10 +5,15 @@ from lmdeploy.turbomind.deploy.converter import (get_input_model_registered_name
                                                  get_output_model_registered_name_and_config)
 from lmdeploy.turbomind.deploy.source_model.base import INPUT_MODELS
 
-# yapf: enable
-
+def is_a100_or_higher():
+    import torch
+    if not torch.cuda.is_available():
+        return False
+    name = torch.cuda.get_device_properties(0).name
+    return 'A100' in name or 'H100' in name
 
 def test_registered_models():
+    is_a100 = is_a100_or_higher()
     for model, model_format, group_size, weight_type, register_name in [
         ('internlm/internlm2-7b', 'hf', 0, 'bfloat16', 'tm'), ('baichuan-inc/Baichuan-7B', 'hf', 0, 'float16', 'tm'),
         ('baichuan-inc/Baichuan2-7B-Chat', 'hf', 0, 'bfloat16', 'tm'),
@@ -43,6 +48,8 @@ def test_registered_models():
                                                                           group_size=0)
         assert output_name == register_name
         assert config.model_config.group_size == group_size
+        if weight_type == 'bfloat16' and not is_a100:
+            weight_type = 'float16'
         assert config.weight_type == weight_type
         assert config.session_len > 0
         assert config.model_config.model_arch is not None
@@ -88,12 +95,17 @@ def test_update_from_engine_config():
 
 
 def test_dtype():
-    testsets = [('auto', 'bfloat16'), ('float16', 'float16'), ('bfloat16', 'bfloat16')]
+    is_a100 = is_a100_or_higher()
+    testsets = [('auto', 'bfloat16'), ('float16', 'float16'),
+                ('bfloat16', 'bfloat16')]
     for specified_dtype, expected_dtype in testsets:
-        _, _config = get_output_model_registered_name_and_config('internlm/internlm2-chat-7b',
-                                                                 model_format='hf',
-                                                                 dtype=specified_dtype,
-                                                                 group_size=0)
+        _, _config = get_output_model_registered_name_and_config(
+            'internlm/internlm2-chat-7b',
+            model_format='hf',
+            dtype=specified_dtype,
+            group_size=0)
+        if expected_dtype == 'bfloat16' and not is_a100:
+            expected_dtype = 'float16'
         assert _config.weight_type == expected_dtype
     for specified_dtype in ['auto', 'float16', 'bfloat16']:
         _, _config = get_output_model_registered_name_and_config('internlm/internlm2_5-20b-chat-4bit-awq',

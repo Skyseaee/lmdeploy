@@ -26,8 +26,9 @@ from lmdeploy.pytorch.disagg.request import DistServeConnectionRequest, DistServ
 from lmdeploy.serve.utils import LogitsMixin
 from lmdeploy.tokenizer import DetokenizeState
 from lmdeploy.utils import _get_and_verify_max_len, _stop_words, get_hf_gen_cfg, get_logger
+import time
+from aipinfer import logger
 
-logger = get_logger('lmdeploy')
 
 
 def get_names_from_model(model_path: str, model_name: str = None):
@@ -54,7 +55,7 @@ class GenOut:
     history_token_len: int
     input_token_len: int
     generate_token_len: int
-    finish_reason: Optional[Literal['stop', 'length', 'error']] = None
+    finish_reason: Optional[Literal['stop', 'length', 'error', 'tool_calls', 'end', 'unknown']] = None
     token_ids: List[int] = None
     logprobs: List[Dict[int, float]] = None
     logits: Any = None
@@ -62,6 +63,7 @@ class GenOut:
 
     # for disaggregation
     cache_block_ids: List[int] = None
+    cost_time: float = 0
 
 
 def _gen_out_to_response(out: GenOut, index) -> Response:
@@ -270,7 +272,14 @@ class AsyncEngine(LogitsMixin):
             chat_template_config.model_name = chat_template_name
         self.chat_template = chat_template_config.chat_template
 
-        logger.info(f'updated chat_template_onfig={chat_template_config}')
+        # prevent bc
+        for k in list(kwargs.keys()):
+            if hasattr(chat_template_config, k):
+                logger.warn(f'{k} was deprecated. Please use '
+                               'chat_template_config instead')
+                v = kwargs.pop(k)
+                setattr(chat_template_config, k, v)
+        logger.info(f'updated chat_template_config={chat_template_config}')
 
         self.tokenizer = Tokenizer(model_path)
         self.hf_gen_cfg = get_hf_gen_cfg(model_path)
@@ -347,11 +356,12 @@ class AsyncEngine(LogitsMixin):
         self.hf_tm_cfg = getattr(self.engine.model_config, 'hf_config', None)
 
     def __call__(self,
-                 prompts: Union[List[str], str, List[Dict], List[List[Dict]]],
+                 prompts: Union[List[str], str, List[Dict], List[List[Dict]]] = None,
                  gen_config: Optional[GenerationConfig] = None,
                  do_preprocess: bool = True,
                  adapter_name: Optional[str] = None,
                  use_tqdm: bool = False,
+                 input_ids: Optional[List] = None,
                  **kwargs):
         """Inference a batch of prompts.
 
@@ -367,6 +377,7 @@ class AsyncEngine(LogitsMixin):
             adapter_name (str): the adapter name of slora for pytorch backend.
                 Pick one from adapters. Default to None, using the base model.
             use_tqdm (bool): Whether use the progress bar. Default to False
+            input_ids (Optional[List]): token ids as input when prompts is None
         """
         if gen_config is None:
             gen_config = GenerationConfig()
@@ -375,6 +386,7 @@ class AsyncEngine(LogitsMixin):
                                 do_preprocess=do_preprocess,
                                 adapter_name=adapter_name,
                                 use_tqdm=use_tqdm,
+                                input_ids=input_ids,
                                 **kwargs)
 
     async def stop_session(self, session_id: int):
@@ -453,16 +465,26 @@ class AsyncEngine(LogitsMixin):
         return isinstance(prompts, str) or isinstance(prompts[0], Dict)
 
     def infer(self,
-              prompts: Union[List[str], str, List[Dict], List[List[Dict]]],
+              prompts: Union[List[str], str, List[Dict], List[List[Dict]]] = None,
               gen_config: Optional[Union[GenerationConfig, List[GenerationConfig]]] = None,
               do_preprocess: bool = True,
               adapter_name: Optional[str] = None,
               stream_response: bool = False,
               multiplex: bool = False,
               pbar: Optional[tqdm.tqdm] = None,
+              input_ids: Optional[List] = None,
               **kwargs):
 
-        prompts = [prompts] if AsyncEngine._is_single(prompts) else prompts
+        if prompts is None and input_ids is not None:
+            if isinstance(input_ids[0], list):
+                batch_size = len(input_ids)
+            else:
+                batch_size = 1
+                input_ids = [input_ids]
+            prompts = [None] * batch_size
+        else:
+            prompts = [prompts] if AsyncEngine._is_single(prompts) else prompts
+
         assert isinstance(prompts, List), 'prompts should be a list'
         gen_config = gen_config or GenerationConfig()
         if not isinstance(gen_config, List):
@@ -471,7 +493,7 @@ class AsyncEngine(LogitsMixin):
                 'input gen_confg length differs from the length of prompts'  # noqa
 
         def requests():
-            for prompt, gen_cfg in zip(prompts, gen_config):
+            for i, (prompt, gen_cfg) in enumerate(zip(prompts, gen_config)):
                 r = dict(messages=prompt,
                          gen_config=gen_cfg,
                          do_preprocess=do_preprocess,
@@ -482,16 +504,21 @@ class AsyncEngine(LogitsMixin):
                 r.setdefault('sequence_end', True)
                 if 'session_id' not in r:
                     r['session_id'] = next(self._session_id)
+                # if prompt is None and input_ids is not None
+                if prompt is None and input_ids is not None:
+                    r['messages'] = None
+                    r['input_ids'] = input_ids[i]
                 yield r
 
         return self._infer(requests(), multiplex, pbar)
 
     def batch_infer(self,
-                    prompts: Union[List[str], str, List[Dict], List[List[Dict]]],
+                    prompts: Union[List[str], str, List[Dict], List[List[Dict]]] = None,
                     gen_config: Optional[Union[GenerationConfig, List[GenerationConfig]]] = None,
                     do_preprocess: bool = True,
                     adapter_name: Optional[str] = None,
                     use_tqdm: bool = False,
+                    input_ids: Optional[List] = None,
                     **kwargs):
         """Inference a batch of prompts.
 
@@ -507,10 +534,25 @@ class AsyncEngine(LogitsMixin):
             adapter_name (str): the adapter name of slora for pytorch backend.
                 Pick one from adapters. Default to None, using the base model.
             use_tqdm (bool): Whether use the progress bar. Default to False
+            input_ids (Optional[List]): token ids as input when prompts is None
         """
-        is_single = AsyncEngine._is_single(prompts)
+        if prompts is None and input_ids is not None:
+            if not isinstance(input_ids, list):
+                raise ValueError("input_ids should be a list")
+
+            if input_ids and isinstance(input_ids[0], list):
+                is_single = False
+                batch_size = len(input_ids)
+            else:
+                is_single = True
+                input_ids = [input_ids]
+                batch_size = 1
+        else:
+            is_single = AsyncEngine._is_single(prompts)
+            batch_size = 1 if is_single else (len(prompts) if prompts is not None else 0)
+
         outputs = []
-        pbar = tqdm.tqdm(total=1 if is_single else len(prompts)) if use_tqdm else None
+        pbar = tqdm.tqdm(total=batch_size) if use_tqdm else None
         try:
             for g in self.infer(prompts,
                                 gen_config,
@@ -518,6 +560,7 @@ class AsyncEngine(LogitsMixin):
                                 adapter_name,
                                 stream_response=False,
                                 pbar=pbar,
+                                input_ids=input_ids,
                                 **kwargs):
                 res = None
                 for out in g:
@@ -567,7 +610,11 @@ class AsyncEngine(LogitsMixin):
                 chat_template = MODELS.module_dict[adapter_name]()
         else:
             chat_template = BaseChatTemplate()
-        prompt = chat_template.messages2prompt(prompt, sequence_start, tools=tools, enable_thinking=enable_thinking)
+        prompt = chat_template.messages2prompt(prompt,
+                                               sequence_start,
+                                               tools=tools,
+                                               tokenizer=self.tokenizer,
+                                               enable_thinking=enable_thinking)
         if prompt is None:
             raise ValueError(
                 f'You are using base template to handle chat task. Please specify a `--chat-template` name chosen from `lmdeploy list` if you want to use OpenAI messages input.'  # noqa
@@ -608,6 +655,26 @@ class AsyncEngine(LogitsMixin):
         finally:
             await generator.aclose()
 
+    @staticmethod
+    def _check_stop_strings(seq: str, stop_words: List[str]) -> Tuple[str, bool]:
+        """Check if any stop_word is in seq.
+        Returns (possibly truncated seq, hit_stop_word: bool)."""
+        if not seq or not isinstance(seq, str):
+            return seq, False
+
+        min_index = None
+        for stop_str in stop_words:
+            if not stop_str:
+                continue
+            stop_index = seq.find(stop_str)
+            if stop_index != -1:
+                if min_index is None or stop_index < min_index:
+                    min_index = stop_index
+        if min_index is not None:
+            seq = seq[:min_index]
+            return seq, True
+        return seq, False
+
     async def generate(
             self,
             messages,
@@ -624,6 +691,7 @@ class AsyncEngine(LogitsMixin):
             rewind_stop_tokens: bool = False,
             input_ids: Optional[List] = None,
             enable_thinking: Optional[bool] = None,
+            traceid: Optional[Union[str, int]] = None,
             **kwargs):
         """Generate responses.
 
@@ -639,6 +707,7 @@ class AsyncEngine(LogitsMixin):
             do_preprocess (bool): whether pre-process the messages. Default to
                 True, which means chat_template will be applied.
         """
+        start_time = time.time()
         if (messages is not None) ^ (input_ids is None):
             raise ValueError('You must specify exactly one of messages or input_ids')
         if session_id not in self.id2step:
@@ -654,11 +723,12 @@ class AsyncEngine(LogitsMixin):
             gen_config.stop_token_ids = self.stop_words
         gen_config.update_from_hf_gen_cfg(self.hf_gen_cfg, self.tokenizer.eos_token_id)
         if not gen_config.do_sample:
-            logger.warning(f'GenerationConfig: {gen_config}')
-            logger.warning('Since v0.6.0, lmdeploy add `do_sample` in '
-                           'GenerationConfig. It defaults to False, meaning greedy '
-                           'decoding. Please set `do_sample=True` if sampling '
-                           ' decoding is needed')
+            logger.warn(f'GenerationConfig: {gen_config}')
+            logger.warn(
+                'Since v0.6.0, lmdeploy add `do_sample` in '
+                'GenerationConfig. It defaults to False, meaning greedy '
+                'decoding. Please set `do_sample=True` if sampling '
+                ' decoding is needed. Service api default to True')
             # greedy decode
             gen_config.top_k = 1
             # avoid unnecessary process
@@ -673,42 +743,87 @@ class AsyncEngine(LogitsMixin):
             gen_config.n = 1
         if messages:
             prompt = messages
-            self.request_logger.log_prompt(session_id=session_id, prompt=prompt)
+            # self.request_logger.log_prompt(session_id=session_id, prompt=prompt)
             prompt_input = await self._get_prompt_input(prompt,
                                                         do_preprocess,
                                                         sequence_start,
                                                         adapter_name,
                                                         tools=tools,
                                                         enable_thinking=enable_thinking)
+            preprocess_time = (time.time() - start_time) * 1000
             prompt = prompt_input['prompt']
             input_ids = prompt_input['input_ids']
+            finish_reason = None
             self.request_logger.log_inputs(session_id=session_id,
                                            prompt=prompt,
                                            prompt_token_ids=input_ids,
                                            gen_config=gen_config,
                                            adapter_name=adapter_name)
-            logger.info(f'session={session_id}, '
-                        f'history_tokens={self.id2step[session_id]}, '
-                        f'input_tokens={len(input_ids)}, '
-                        f'max_new_tokens={gen_config.max_new_tokens}, '
-                        f'seq_start={sequence_start}, seq_end={sequence_end}, '
-                        f'step={step}, prep={do_preprocess}')
+            # logger.info(f'session_id={session_id}, '
+            #             f'history_tokens={self.id2step[session_id]}, '
+            #             f'input_tokens={len(input_ids)}, '
+            #             f'max_new_tokens={gen_config.max_new_tokens}, '
+            #             f'seq_start={sequence_start}, seq_end={sequence_end}, '
+            #             f'step={step}, prep={do_preprocess}')
         else:
             # TODO(lvhan) VLM doesn't support input_ids as an argument.
             # Figure out a graceful way to handle the invalid input
             prompt_input = dict(input_ids=input_ids)
+            preprocess_time = (time.time() - start_time) * 1000
+            input_ids = prompt_input['input_ids']
+            self.request_logger.log_inputs(session_id=session_id,
+                                           prompt=None,
+                                           prompt_token_ids=input_ids,
+                                           gen_config=gen_config,
+                                           adapter_name=adapter_name)
+
         if gen_config.max_new_tokens is None:
             # for interactive endpoint, will try maximum possible token num
-            gen_config.max_new_tokens = max(128, self.session_len - self.id2step[session_id] - len(input_ids))
+            gen_config.max_new_tokens = max(0, self.session_len - self.id2step[session_id] - len(input_ids))
         elif self.id2step[session_id] + len(input_ids) + gen_config.max_new_tokens > self.session_len:
-            gen_config.max_new_tokens = max(self.session_len - self.id2step[session_id] - len(input_ids), 128)
+            gen_config.max_new_tokens = max(self.session_len - self.id2step[session_id] - len(input_ids), 0)
             logger.error(f'Truncate max_new_tokens to {gen_config.max_new_tokens}')
-        if self.id2step[session_id] + len(input_ids) + gen_config.max_new_tokens > self.session_len:
-            logger.error(f'run out of tokens. session={session_id}.')
-            yield GenOut('', self.id2step[session_id], len(input_ids), 0, 'length')
+
+        if len(input_ids) < 1:
+            warn_msg = f'Input error: sequence is empty. session_id={session_id}'
+            logger.warn(warn_msg)
+            finish_reason = 'length'
+            cost_time = (time.time() - start_time) * 1000
+            logger.info(f'traceid: {traceid}, input_tokens: {len(input_ids)}, session_id: {session_id}, '
+                        f'top_k: {gen_config.top_k}, top_p: {gen_config.top_p}, temperature: {gen_config.temperature}, '
+                        f'repetition_penalty: {gen_config.repetition_penalty}, step: {step},'
+                        f'ignore_eos: {gen_config.ignore_eos}, finish_reason: {finish_reason}, '
+                        f'preprocess_time: {preprocess_time:0.2f}, total_time: {cost_time:0.2f}'
+                        )
+            yield GenOut(warn_msg, self.id2step[session_id], len(input_ids), 0,
+                         finish_reason, cost_time=cost_time)
             if sequence_end is True and sequence_start is False:
                 await self.end_session(session_id)
             return
+
+        if self.id2step[session_id] + len(input_ids) >= self.session_len:
+            if gen_config.trunc_to_session_length:
+                input_ids = input_ids[:self.session_len - self.id2step[session_id]]
+                prompt_input['input_ids'] = input_ids
+            else:
+                warn_msg = f'run out of tokens. session_id={session_id}'
+                logger.warn(warn_msg)
+                finish_reason = 'length'
+                cost_time = (time.time() - start_time) * 1000
+                logger.info(f'traceid: {traceid}, input_tokens: {len(input_ids)}, session_id: {session_id}, '
+                        f'stream: {stream_response}, sequence_start: {sequence_start},'
+                        f'sequence_end: {sequence_end}, max_new_tokens: {gen_config.max_new_tokens},'
+                        f'top_k: {gen_config.top_k}, top_p: {gen_config.top_p}, temperature: {gen_config.temperature}, '
+                        f'repetition_penalty: {gen_config.repetition_penalty}, step: {step},'
+                        f'ignore_eos: {gen_config.ignore_eos}, finish_reason: {finish_reason}, '
+                        f'preprocess_time: {preprocess_time:0.2f}, total_time: {cost_time:0.2f}'
+                        )
+                yield GenOut(warn_msg, self.id2step[session_id], len(input_ids), 0,
+                        finish_reason, cost_time=cost_time)
+                if sequence_end is True and sequence_start is False:
+                    await self.end_session(session_id)
+                return
+
 
         def is_error(status):
             return status not in [ResponseType.SUCCESS, ResponseType.FINISH]
@@ -725,6 +840,7 @@ class AsyncEngine(LogitsMixin):
             output_len, gen_len = 0, 0
             state = DetokenizeState(len(input_ids))
             start_ids_offset = state.ids_offset
+            hit_stop_word = False
             response = ''
             finish_reason = None
             async with self.safe_run(inst,
@@ -751,6 +867,8 @@ class AsyncEngine(LogitsMixin):
                     # This assumes the engine will stop when stop token is hit
                     if output_len and outputs.token_ids[-1] in stop_ids:
                         hit_stop_token = 1
+                        # Compatible with old logic
+                        finish_reason = 'end' if outputs.token_ids[-1] == self.tokenizer.eos_token_id else 'stop'
                         # one token and it's been skipped
                         if output_len == prev_len + 1:
                             continue
@@ -769,14 +887,17 @@ class AsyncEngine(LogitsMixin):
                         skip_special_tokens=gen_config.skip_special_tokens,
                         spaces_between_special_tokens=gen_config.spaces_between_special_tokens)
                     res = token_ids[ids_offset:]
-
+                    # _check_stop_strings
+                    if gen_config.stop_words is not None:
+                        response, hit_stop_word = self._check_stop_strings(response, gen_config.stop_words)
                     out = GenOut(response,
                                  history_len,
                                  input_len,
                                  gen_len,
                                  finish_reason,
                                  token_ids=res,
-                                 cache_block_ids=outputs.cache_block_ids)
+                                 cache_block_ids=outputs.cache_block_ids,
+                                 cost_time=(time.time() - start_time) * 1000)
 
                     if outputs.logprobs is not None:
                         log_offset = ids_offset - start_ids_offset
@@ -792,26 +913,32 @@ class AsyncEngine(LogitsMixin):
                             out.logits = out.logits[:-hit_stop_token]
 
                     yield out
-                # end of generator loop
 
+                    if hit_stop_word:
+                        finish_reason = 'stop'
+                        break  # will invoke GeneratorExit and cancel in turbomind
+
+                # end of generator loop
+                cost_time = (time.time() - start_time) * 1000
                 if not is_error(outputs.status):
-                    finish_reason = 'length' \
-                        if gen_len >= gen_config.max_new_tokens else 'stop'
+                    if gen_len >= gen_config.max_new_tokens:
+                        finish_reason = 'length'
                     # utf-8 char at the end means it's a potential unfinished
                     # byte sequence
                     if not response.endswith('�'):
                         # avoid returning the last response twice
                         response = ''
-                    logger.info(f'session {session_id} finished, reason '
-                                f'"{finish_reason}", input_tokens '
-                                f'{len(input_ids)}, outupt_tokens {gen_len}')
+                    # logger.info(f'session {session_id} finished, reason '
+                    #             f'"{finish_reason}", input_tokens '
+                    #             f'{len(input_ids)}, outupt_tokens {gen_len}')
                     yield GenOut(response,
                                  self.id2step[session_id],
                                  len(input_ids),
                                  gen_len,
                                  finish_reason,
                                  token_ids=[],
-                                 cache_block_ids=outputs.cache_block_ids)
+                                 cache_block_ids=outputs.cache_block_ids,
+                                 cost_time=cost_time)
                 else:
                     logger.error(f'session {session_id} finished, '
                                  'reason "error"')
@@ -820,7 +947,9 @@ class AsyncEngine(LogitsMixin):
                                  input_token_len=len(input_ids),
                                  generate_token_len=0,
                                  finish_reason='error',
-                                 token_ids=[])
+                                 token_ids=[],
+                                 cost_time=cost_time)
+
             # update step
             if sequence_end:
                 self.id2step[session_id] = 0
@@ -832,6 +961,21 @@ class AsyncEngine(LogitsMixin):
                     # rewind the step to the token before the stop token
                     output_len = gen_len
                 self.id2step[session_id] += input_len + output_len
+            # for VLAsyncEngine
+            if hasattr(self, 'vl_encoder'):
+                hit_msg = f"vl_cache:{self.embedding_cache.size}/{self.embedding_cache.max_capacity}, vl_hit_rate:{self.embedding_cache.hit_rate:.2f}%, "
+            else:
+                hit_msg = ""
+            logger.info(f'traceid: {traceid}, input_tokens: {len(input_ids)}, session_id: {session_id},'
+                        f'stream: {stream_response}, sequence_start: {sequence_start}, '
+                        f'sequence_end: {sequence_end}, max_new_tokens: {gen_config.max_new_tokens}, '
+                        f'top_k: {gen_config.top_k}, top_p: {gen_config.top_p}, temperature: {gen_config.temperature}, '
+                        f'repetition_penalty: {gen_config.repetition_penalty}, step: {step}, '
+                        f'ignore_eos: {gen_config.ignore_eos}, generated_tokens: {gen_len}, '
+                        f'finish_reason: {finish_reason}, {hit_msg}'
+                        f'preprocess_time: {preprocess_time:0.2f}, total_time: {cost_time:0.2f}'
+                        )
+
 
     def _run(self, fn=None, coro=None, loop=None):
         assert (fn or coro) and not (fn and coro)
@@ -937,7 +1081,7 @@ class AsyncEngine(LogitsMixin):
         if self.engine.end_session(session_id):
             logger.debug(f'successfully free session {session_id}')
         else:
-            logger.warning(f'Invalid Free session {session_id}.')
+            logger.warn(f'Invalid Free session {session_id}.')
 
     def p2p_initialize(self, init_request: DistServeInitRequest):
         return self.engine.p2p_initialize(init_request)

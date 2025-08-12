@@ -5,7 +5,9 @@ from typing import List, Optional
 from .messages import GenerationConfig
 from .utils import get_logger
 
-logger = get_logger('lmdeploy')
+from aipinfer import logger
+
+# logger = get_logger('lmdeploy')
 
 
 class RequestLogger:
@@ -26,6 +28,8 @@ class RequestLogger:
             # logging might be impractical due to length
             return
         if self.max_log_len is not None:
+            if self.max_log_len <= 0:
+                return
             if prompt is not None:
                 prompt = prompt[:self.max_log_len]
         logger.info(f'session={session_id}, '
@@ -36,6 +40,8 @@ class RequestLogger:
         max_log_len = self.max_log_len
         input_tokens = len(prompt_token_ids)
         if max_log_len is not None:
+            if self.max_log_len <= 0:
+                return
             if prompt is not None:
                 prompt = prompt[:max_log_len]
 

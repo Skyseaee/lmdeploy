@@ -157,11 +157,15 @@ class SubCliServe:
         # common engine args
         dtype_act = ArgumentHelper.dtype(pt_group)
         tp_act = ArgumentHelper.tp(pt_group)
+        enalbe_ep_act = ArgumentHelper.enable_expert_parallel(pt_group)
+        enable_attention_dp = ArgumentHelper.enable_attention_dp(pt_group)
         session_len_act = ArgumentHelper.session_len(pt_group)
         max_batch_size_act = ArgumentHelper.max_batch_size(pt_group)
         cache_max_entry_act = ArgumentHelper.cache_max_entry_count(pt_group)
         cache_block_seq_len_act = ArgumentHelper.cache_block_seq_len(pt_group)
         prefix_caching_act = ArgumentHelper.enable_prefix_caching(pt_group)
+        expert_pruning_act = ArgumentHelper.enable_expert_pruning(pt_group)
+        keep_expert_num = ArgumentHelper.keep_expert_num(pt_group)
         max_prefill_token_num_act = ArgumentHelper.max_prefill_token_num(pt_group)
         quant_policy = ArgumentHelper.quant_policy(pt_group)
         model_format = ArgumentHelper.model_format(pt_group)
@@ -180,11 +184,15 @@ class SubCliServe:
         # common engine args
         tb_group._group_actions.append(dtype_act)
         tb_group._group_actions.append(tp_act)
+        tb_group._group_actions.append(enalbe_ep_act)
+        tb_group._group_actions.append(enable_attention_dp)
         tb_group._group_actions.append(session_len_act)
         tb_group._group_actions.append(max_batch_size_act)
         tb_group._group_actions.append(cache_max_entry_act)
         tb_group._group_actions.append(cache_block_seq_len_act)
         tb_group._group_actions.append(prefix_caching_act)
+        tb_group._group_actions.append(expert_pruning_act)
+        tb_group._group_actions.append(keep_expert_num)
         tb_group._group_actions.append(max_prefill_token_num_act)
         tb_group._group_actions.append(quant_policy)
         tb_group._group_actions.append(model_format)
@@ -196,6 +204,7 @@ class SubCliServe:
         # vlm args
         vision_group = parser.add_argument_group('Vision model arguments')
         ArgumentHelper.vision_max_batch_size(vision_group)
+        ArgumentHelper.vision_instance_num(vision_group)
 
     @staticmethod
     def add_parser_api_client():
@@ -340,6 +349,8 @@ class SubCliServe:
             from lmdeploy.messages import TurbomindEngineConfig
             backend_config = TurbomindEngineConfig(dtype=args.dtype,
                                                    tp=args.tp,
+                                                   enable_expert_parallel=args.enable_expert_parallel,
+                                                   enable_attention_dp=args.enable_attention_dp,
                                                    max_batch_size=max_batch_size,
                                                    session_len=args.session_len,
                                                    model_format=args.model_format,
@@ -348,15 +359,17 @@ class SubCliServe:
                                                    cache_max_entry_count=args.cache_max_entry_count,
                                                    cache_block_seq_len=args.cache_block_seq_len,
                                                    enable_prefix_caching=args.enable_prefix_caching,
+                                                   enable_expert_pruning=args.enable_expert_pruning,
+                                                   keep_expert_num=args.keep_expert_num,
                                                    max_prefill_token_num=args.max_prefill_token_num,
                                                    communicator=args.communicator)
         chat_template_config = get_chat_template(args.chat_template)
 
         from lmdeploy.messages import VisionConfig
-        vision_config = VisionConfig(args.vision_max_batch_size)
+        vision_config = VisionConfig(max_batch_size=args.vision_max_batch_size,
+                                     instance_num=args.vision_instance_num)
         if args.dp == 1:
             from lmdeploy.serve.openai.api_server import serve as run_api_server
-
             run_api_server(args.model_path,
                            model_name=args.model_name,
                            backend=backend,

@@ -1,0 +1,1 @@
+../scripts/convert_compress_model.sh
