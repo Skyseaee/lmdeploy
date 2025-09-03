@@ -6,10 +6,12 @@
 #include <limits>
 #include <numeric>
 #include <random>
+#include <cassert>
 
 #include <cub/block/block_reduce.cuh>
 #include <cub/block/block_scan.cuh>
 #include <cub/warp/warp_scan.cuh>
+#include <math_constants.h>
 
 #include "src/turbomind/core/allocator.h"
 #include "src/turbomind/core/data_type.h"
@@ -17,8 +19,171 @@
 #include "src/turbomind/kernels/core/common.h"
 #include "src/turbomind/kernels/core/math.h"
 #include "src/turbomind/kernels/gemm/moe_utils_v2.h"
+#include "src/turbomind/utils/logger.h"
 
 namespace turbomind {
+
+__global__ void MoeVotingK1(
+    float* logits,       // [tokens * expert_num]
+    int*   votes,        // [e]
+    int*   hists,        // [1024 + 1]
+    int    tokens,       // T ≤ 1024
+    int    expert_num,   // E
+    int    top_k         // K ≤ 4
+) {
+
+    int tid  = threadIdx.x;
+    int bid  = blockIdx.x;
+    int bdim = blockDim.x; // threadnum = 1024
+
+    // 
+    // 32个线程负责一行，共有1024/32=32组, 一共有8个block，可以负责
+    const int threads_for_a_row = 32;
+    const int group_id = tid / threads_for_a_row + bid * (bdim / threads_for_a_row); // 处理哪一行
+    const int inner_group_id = tid % threads_for_a_row;
+    
+    if(group_id >= tokens){
+        return;
+    }
+    long long mask = 0; // 64bit, 用于当前负责行的专家mask
+    for (int k = 1; k <= top_k; k++) {
+
+        float max_val = -std::numeric_limits<float>::infinity();
+        int max_idx = -1;
+        // stage1: 每个线程局部的最大值
+        
+        #pragma unroll
+        for (int colidx = inner_group_id; colidx < expert_num; colidx += threads_for_a_row){ // 处理1行，每行有48个expert
+            float val = logits[group_id * expert_num + colidx];
+            if (val > max_val && (mask & (1ll << colidx)) == 0) {
+                max_idx = colidx;
+                max_val = val;
+            }
+        }
+        __syncthreads();
+
+        // stage2: 同步warp内的最大值
+        #pragma unroll
+        for(int offset = threads_for_a_row / 2; offset >= 1; offset >>=1){
+            
+            float other_val = __shfl_xor_sync(0xffffffff, max_val, offset);
+            int other_idx = __shfl_xor_sync(0xffffffff, max_idx, offset); // 伴随传播
+
+            if (other_val > max_val || (other_val == max_val && other_idx > max_idx)){ // 最小的那个索引
+                max_val = other_val; // 更新当前线程能够看到的范围内的局部最值
+                max_idx = other_idx; // 伴随更新idx
+            }
+
+        }
+        
+        // stage3. 清空最大值
+        if(inner_group_id == 0){
+            //进行专家投票, 这里多个block之间会有竞争，因此需要原子操作
+            atomicAdd(&votes[max_idx], 1);
+            // printf("clear row:%d, col:%d\n", group_id, max_idx);
+            //将当前行所在的最大值清空
+            // logits[group_id * expert_num + max_idx] = -std::numeric_limits<float>::infinity();
+        }
+        // 如果使用mask，需要所有线程都做mask
+        mask |= (1ll << max_idx);
+
+        __syncthreads();
+    }
+
+}
+
+__global__ void MoeVotingK2(
+    float* logits,       // [tokens * expert_num]
+    int*   votes,        // [e]
+    int*   hists,        // [1024 + 1]
+    int    tokens,       // T ≤ 1024
+    int    expert_num,   // E
+    int    top_k,        // K ≤ 4
+    int    keep_expert_num
+) {
+    int bid = blockIdx.x;
+    int tid = threadIdx.x;
+    int bdim = blockDim.x;
+
+    for (int idx = tid; idx <= tokens; idx += bdim) {
+        hists[idx] = 0;
+    }
+
+    __syncthreads();
+
+    if (bid == 0){
+        
+        //// origin Step2:使用1个block中的1024线程，每个线程负责1个专家，做直方图累积
+        for(int idx = tid; idx <= expert_num; idx += bdim){
+            int num = votes[idx];
+            atomicAdd(&hists[num], 1);
+        }
+    
+        __syncthreads();
+
+        // 用thread0 来找分界点
+        __shared__ int thr;
+        if (tid == 0){
+            int remove_num = expert_num - keep_expert_num;
+            int sum = 0;
+            for (int i = 0; i <= tokens; i++) { // 这里最大票数只可能是tokens
+                sum += hists[i];
+                if(sum >= remove_num){
+                    thr = i;
+                    break;
+                }
+            }
+        }
+        __syncthreads();
+        
+        // assert (bid == 0)
+        
+        // // origin Step3: 使用多个block， thread来进行MASK
+        // 如果使用remains，单行只能串行
+        if (tid < tokens) {
+            int capacity = expert_num - keep_expert_num;
+            for(int e = 0; e < expert_num && capacity > 0; ++e){
+                if(votes[e] <= thr) {
+                    logits[tid * expert_num + e] = -std::numeric_limits<float>::infinity();
+                    --capacity;
+                }
+            }
+        }   
+    }
+
+    __syncthreads();
+    if (tid < expert_num) {
+        votes[tid] = 0;
+    }
+}
+
+
+void invokeMaskExpertsByVoteFusedV2(
+    float*       logits,
+    int*         votes,
+    int*         hists,
+    int          tokens,
+    int          expert_num,
+    int          top_k,
+    int          keep_expert_num,
+    cudaStream_t stream
+) {
+    const int threads = 1024; // 1024/32= 32group, 每个group一个token
+    const int blocks = 32; // 32 * 32 = 1024, batch_size最大1024
+
+    assert(tokens <= threads);
+    assert(top_k <= 4);
+    // K1 不修改logits结果, 修改votes结果，清空hists
+    MoeVotingK1<<<blocks, threads, 0, stream>>>(
+        logits, votes, hists, tokens, expert_num, top_k
+    );
+    
+    //K2 修改logits结果, hists结果
+    // only one block, because of sync reason.
+    MoeVotingK2<<<1, threads, 0, stream>>>(
+        logits, votes, hists, tokens, expert_num, top_k, keep_expert_num
+    );
+}
 
 template<int top_k, int block_dim>
 __global__ void MoeGateKernel_V2(float*       scales,  // [e,n]
@@ -943,6 +1108,77 @@ void invokeMoeCombine(Ref<Tensor>   out_,
 
     TM_DISPATCH_PRIMARY_DTYPES(src.dtype(), invoke);
 }
+
+template void
+invokeMoeReduce(half*, const half*, const float*, const int*, const float*, int, int, int, float, cudaStream_t);
+#ifdef ENABLE_BF16
+template void invokeMoeReduce(
+    nv_bfloat16*, const nv_bfloat16*, const float*, const int*, const float*, int, int, int, float, cudaStream_t);
+#endif
+
+template<int vec_size, int block_dim, class T>
+__global__ void FusedMoeReduceKernel(T*           dst,         // [  n, d]
+                                     const T*     src,         // [e*n, d]
+                                     const float* dst_scales,  // [n]
+                                     int          dims,
+                                     int          tokens,
+                                     float        dst_scale)
+{
+    using Vec = Array<T, vec_size>;
+
+    const int64_t ti = blockIdx.x;
+
+    // dims = 384
+    auto dst_ptr = (Vec*)dst + dims * ti;
+
+    if (dst_scales) {
+        dst_scale = dst_scales[ti];
+        dst_scale = fdividef(1.f, 1.f + expf(-dst_scale));
+    }
+
+    // Should be warp uniforms
+    const Vec* src_ptr = (const Vec*)src + dims * ti;
+
+    for (int i = threadIdx.x; i < dims; i += block_dim) {
+        Array<float, vec_size> accum{};
+        if (dst_scale) {
+            Vec v;
+            Ldg(v, dst_ptr[i].data());
+            using namespace ops;
+            accum = cast<float>(v) * dst_scale;
+        }
+      
+        Vec v;
+        Ldg(v, src_ptr[i].data());
+        using namespace ops;
+        const auto x = cast<float>(v);
+        accum        = accum + x;
+        
+        Store(dst_ptr[i].data(), cast<T>(accum));
+    }
+}
+
+template<class T>
+void invokeFusedMoeReduce(
+    T* dst, const T* src, const float* dst_scales, int tokens, int dims, float dst_scale, cudaStream_t st)
+{
+    constexpr int threads     = 256;
+    constexpr int vec_size    = 16 / sizeof(T);
+    FusedMoeReduceKernel<vec_size, threads><<<tokens, threads, 0, st>>>(  //
+        dst,
+        src,
+        dst_scales,
+        dims / vec_size,   // 384
+        tokens,
+        dst_scale);
+}
+
+template void
+invokeFusedMoeReduce(half*, const half*, const float*, int, int, float, cudaStream_t);
+#ifdef ENABLE_BF16
+template void invokeFusedMoeReduce(
+    nv_bfloat16*, const nv_bfloat16*, const float*, int, int, float, cudaStream_t);
+#endif
 
 std::vector<int> SampleUniform(int token_num, int expert_num, int exp_per_tok, std::mt19937& g)
 {

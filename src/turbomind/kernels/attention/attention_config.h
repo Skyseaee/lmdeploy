@@ -30,7 +30,7 @@ struct AttentionConfig {
 template<CacheType type, class T, int CTA_S, int HeadDim>
 using GetCacheIterFactory = std::conditional_t<type == CacheType::kLinear,
                                                LinearIteratorFactory<T, CTA_S, HeadDim>,
-                                               GetBlockIterFactory<T, T, CTA_S, HeadDim>>;
+                                               GetBlockIterFactory<T, T, CTA_S, HeadDim, false>>;
 
 struct Base_64x64_16x64 {
     static constexpr int CTA_Q  = 64;
@@ -43,28 +43,28 @@ template<class T, int HeadDim>
 struct AttentionConfig<arch::Sm80, T, HeadDim, CacheType::kLinear>: Base_64x64_16x64 {
     using Attention = Impl<MMA_16816, T, T, 1, CTA_Q, CTA_S, 1, WARP_Q, WARP_S, HeadDim, 2>;
     using CacheIter = LinearIteratorFactory<T, CTA_S, HeadDim>;
-    using Kernel    = AttentionUniversal<arch::Sm80, Mainloop<Sm80_CpAsync<2>, Attention>, CacheIter, AttentionCtaMap>;
+    using Kernel    = AttentionUniversal<arch::Sm80, Mainloop<Sm80_CpAsync<2>, Attention>, CacheIter, AttentionCtaMap, false>;
 };
 
 template<class T, int HeadDim>
 struct AttentionConfig<arch::Sm80, T, HeadDim, CacheType::kBlock>: Base_64x64_16x64 {
     using Attention = Impl<MMA_16816, T, T, 1, CTA_Q, CTA_S, 1, WARP_Q, WARP_S, HeadDim, 3>;
     using CacheIter = LinearIteratorFactory<T, CTA_S, HeadDim>;
-    using Kernel    = AttentionUniversal<arch::Sm80, Mainloop<Sm80_CpAsync<3>, Attention>, CacheIter, AttentionCtaMap>;
+    using Kernel    = AttentionUniversal<arch::Sm80, Mainloop<Sm80_CpAsync<3>, Attention>, CacheIter, AttentionCtaMap, false>;
 };
 
 template<class T, int HeadDim, CacheType Ctype>
 struct AttentionConfig<arch::Sm75, T, HeadDim, Ctype>: Base_64x64_16x64 {
     using Attention = Impl<MMA_1688, T, T, 1, CTA_Q, CTA_S, 1, WARP_Q, WARP_S, HeadDim, 2>;
     using CacheIter = GetCacheIterFactory<Ctype, T, CTA_S, HeadDim>;
-    using Kernel    = AttentionUniversal<arch::Sm75, Mainloop<arch::Sm70, Attention>, CacheIter, AttentionCtaMap>;
+    using Kernel    = AttentionUniversal<arch::Sm75, Mainloop<arch::Sm70, Attention>, CacheIter, AttentionCtaMap, false>;
 };
 
 template<class T, int HeadDim, CacheType Ctype>
 struct AttentionConfig<arch::Sm70, T, HeadDim, Ctype>: Base_64x64_16x64 {
     using Attention = Impl<MMA_884, T, T, 1, CTA_Q, CTA_S, 1, WARP_Q, WARP_S, HeadDim, 2>;
     using CacheIter = GetCacheIterFactory<Ctype, T, CTA_S, HeadDim>;
-    using Kernel    = AttentionUniversal<arch::Sm70, Mainloop<arch::Sm70, Attention>, CacheIter, AttentionCtaMap>;
+    using Kernel    = AttentionUniversal<arch::Sm70, Mainloop<arch::Sm70, Attention>, CacheIter, AttentionCtaMap, false>;
 };
 
 }  // namespace turbomind::attention

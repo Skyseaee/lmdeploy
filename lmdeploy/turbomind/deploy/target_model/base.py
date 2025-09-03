@@ -159,6 +159,7 @@ class BaseOutputModel(ABC):
         elif len(self.tm_params) > 0:
             tm_params = self.tm_params
             weight_type = self.model_config.weight_type
+            quant_algo = self.model_config.quant_algo
             assert weight_type in ['float16', 'bfloat16', 'int4', 'fp8']
 
             # currently, the tensor type should in
@@ -166,28 +167,25 @@ class BaseOutputModel(ABC):
             torch_tensor = param.cuda().contiguous()
             assert torch_tensor.dtype in [
                 torch.int32, torch.float, torch.half, torch.bfloat16,
-                torch.uint8, torch.float8_e4m3fn
+                torch.uint8
             ]
+            
             if torch_tensor.dtype != torch.int32:
-                if weight_type in ['float16', 'int4', 'fp8']:
-                    if weight_type == 'fp8':
-                        if torch_tensor.dtype == torch.float and torch_tensor.numel() == 1:
-                            # for quant scales
-                            torch_tensor = torch_tensor.float()
-                        elif torch_tensor.dtype == torch.bfloat16:
-                            # for unquantized tensors with original precision
-                            torch_tensor = torch_tensor.bfloat16()
-                        else:
-                            # fp8 tensors are not supported by dlpack, convert to fp16
-                            torch_tensor = torch_tensor.half()
-                    else:
-                        torch_tensor = torch_tensor.half()
-                elif weight_type == 'bfloat16':
+                # TODO(Alan): w4a8 weight convert
+                if weight_type == 'bfloat16':
                     torch_tensor = torch_tensor.bfloat16()
-                # elif weight_type == 'fp8':
-                #     pass
+                elif weight_type in ['float16', 'int4']:
+                    torch_tensor = torch_tensor.half()
+                elif weight_type == 'fp8':
+                    if torch_tensor.dtype == torch.float and torch_tensor.numel() == 1:
+                        # for quant scales
+                        torch_tensor = torch_tensor.unsqueeze(0)
+                    #if (quant_algo == 'fp8_static') and (torch_tensor.dtype == torch.bfloat16):
+                    #    torch_tensor = torch_tensor.half()
+                    pass
                 else:
                     torch_tensor = torch_tensor.half()
+
             for tm_tensor in tm_params[name]:
                 # print(f'{name}, tensor_shape={torch_tensor.shape} tensor_type={torch_tensor.dtype} '
                 #       f'tm_type={tm_tensor.type}, tm_shape={tm_tensor.shape}')

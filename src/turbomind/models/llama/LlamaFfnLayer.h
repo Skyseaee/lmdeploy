@@ -25,12 +25,24 @@
 #include "src/turbomind/models/llama/context.h"
 #include "src/turbomind/models/llama/llama_params.h"
 
+#ifdef FUSED_GATED_GEMM
+#include "src/turbomind/kernels/fused_gated_gemm/fused_gated_gemm.h"
+#include "src/turbomind/kernels/gemm_profiler/gemmPluginProfiler.h"
+#include "src/turbomind/kernels/gemm_profiler/gemmSwigluProfiler.h"
+
+namespace tlp = tensorrt_llm::plugins;
+#endif
+
 namespace turbomind {
 
 class LlamaFfnLayer {
 public:
     LlamaFfnLayer(const ModelParam& model, const Context& ctx): hidden_units_(model.hidden_units), linear_(*ctx.linear)
     {
+        // TODO(Alan): currently not support TP/PP
+        // Note(meng): We only config CUTLASS Gemm in fp8 mode
+        // if(weight_type == turbomind::WeightType::kFP8)
+        //     configGemm();
     }
 
     struct ForwardParam {
@@ -38,6 +50,7 @@ public:
         Tensor                output;
         const LlamaFfnWeight* weights;
         int                   layer_id;
+        cudaStream_t          cur_stream = nullptr;
     };
 
     void forward(ForwardParam param);

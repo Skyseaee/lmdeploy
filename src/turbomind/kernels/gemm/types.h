@@ -110,8 +110,8 @@ enum class Epilogue : int
 };
 
 struct QuantDesc {
-    QuantType type;
-    int       group_size;
+    QuantType type       = QuantType::kDefault;
+    int       group_size = 128;
 };
 
 enum class DispatchPolicy : int
@@ -148,8 +148,8 @@ struct Operation {
     QuantDesc      quant_a;
     QuantDesc      quant_b;
     int            batch_dim;
-    Context*       context;
-    void*          reserved;
+    Context*       context  = nullptr;
+    void*          reserved = nullptr;
 };
 
 struct MatrixLayout {
@@ -158,10 +158,10 @@ struct MatrixLayout {
     int      rows;
     int      cols;
     int      ld;
-    Pack     pack;
-    int      num;
-    int*     offsets;
-    int*     idxs;
+    Pack     pack    = 0;
+    int      num     = 0;
+    int*     offsets = nullptr;
+    int*     idxs    = nullptr;
 };
 
 inline std::ostream& operator<<(std::ostream& os, const MatrixLayout& x)
@@ -194,6 +194,10 @@ struct Workspace {
     void*  tensormaps;
     size_t tensormaps_size;
     int*   flags;
+    void*  cutlass;
+    size_t cutlass_size;
+    void*  cublas;
+    size_t cublas_size;
 };
 
 }  // namespace turbomind::gemm

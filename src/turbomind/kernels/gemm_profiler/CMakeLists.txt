@@ -4,6 +4,8 @@ cmake_minimum_required(VERSION 3.8)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
+find_package(CUDAToolkit REQUIRED)
+
 project(gemm_profiler)
 
 if(FUSED_GATED_GEMM)
@@ -24,6 +26,7 @@ add_library(${PROJECT_NAME} STATIC
         ${FUSED_MOE_SRC})
 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CUTLASS_HEADER_DIR} ${CUTLASS_TOOLS_HEAD_DIR} ${CUTLASS_EXTENSIONS_DIR})
+target_link_libraries(${PROJECT_NAME} PUBLIC CUDA::cudart CUDA::cuda_driver)
 target_compile_options(${PROJECT_NAME} PRIVATE -O3)
 set_property(TARGET ${PROJECT_NAME} PROPERTY POSITION_INDEPENDENT_CODE ON)
 set_property(TARGET ${PROJECT_NAME} PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS ON)

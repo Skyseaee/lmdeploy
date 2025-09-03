@@ -158,6 +158,10 @@ public:
         offsets_           = offsets;
     }
 
+    void setCtxExpertNum(int expert_num) {
+         expert_num_ = expert_num;
+    }
+
 protected:
     int expert_num_;
     int experts_per_token_;

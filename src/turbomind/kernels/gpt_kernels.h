@@ -243,5 +243,10 @@ void invokeEmbeddingLookup(Ref<Tensor>         out_,
                            const Buffer_<int>& token_ids,
                            const Tensor&       embedding_table,
                            cudaStream_t        st);
+template<typename T>
+void invokeTransposeWeight(const T* src, T* dst, int s, int c, cudaStream_t stream=0);
+
+template<typename T>
+void invokeRescaleWeight(T* weight, float w_s, int s, int c, cudaStream_t stream=0);
 
 }  // namespace turbomind

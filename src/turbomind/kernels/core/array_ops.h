@@ -7,6 +7,10 @@
 #include <cassert>
 #include <type_traits>
 
+#ifdef ENABLE_FP8
+#include <cuda_fp8.h>
+#include "src/turbomind/utils/cuda_fp8_utils.h"
+#endif
 namespace turbomind {
 
 namespace ops {
@@ -111,6 +115,17 @@ inline __device__ Array<To, N> cast(const Array<From, N>& src)
     return dst;
 }
 
+template<typename To, typename From, int N>
+inline __device__ Array<To, N> quant(const Array<From, N>& src, float scale)
+{
+    Array<To, N> dst;
+    PRAGMA_UNROLL
+    for (int i = 0; i < N; ++i) {
+        dst[i] = To(float(src[i]) * scale);
+    }
+    return dst;
+}
+
 template<class T, int N>
 inline __device__ void fill(Array<T, N>& x, T val)
 {
@@ -132,7 +147,7 @@ inline __device__ void fill(Array<T, N> (&x)[M], T val)
 template<class T, int N>
 inline __device__ void clear(Array<T, N>& x)
 {
-    fill(x, T(0));
+    fill(x, T(0.f));
 }
 
 template<class T, int M, int N>

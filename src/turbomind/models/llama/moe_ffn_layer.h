@@ -8,7 +8,25 @@
 #include "src/turbomind/models/llama/LlamaFfnLayer.h"
 #include "src/turbomind/models/llama/llama_params.h"
 
+#ifdef FUSED_MOE_FFN_GEMM
+#include "src/turbomind/kernels/cutlass_kernels/include/moe_kernels.h"
+#include "src/turbomind/kernels/gemm_profiler/gemmMoEProfiler.h"
+
+namespace tlp = tensorrt_llm::plugins;
+namespace tkc = tensorrt_llm::cutlass_extensions;
+#endif
+
 namespace turbomind {
+
+#ifdef FUSED_MOE_FFN_GEMM
+using MoEGemmSwigluRunnerPtr = std::shared_ptr<tensorrt_llm::kernels::cutlass_kernels::CutlassMoeFCRunnerInterface>;
+using MOEParallelismConfig   = tensorrt_llm::kernels::cutlass_kernels::MOEParallelismConfig;
+// using MOEExpertScaleNormalizationMode = tensorrt_llm::kernels::cutlass_kernels::MOEExpertScaleNormalizationMode;
+
+using MixtureOfExpertsGemmProfilerPtr = std::shared_ptr<tensorrt_llm::plugins::MixtureOfExpertsGemmProfiler>;
+using MOEGemmPluginProfilerManager
+    = tensorrt_llm::plugins::GemmPluginProfilerManager<tensorrt_llm::plugins::MixtureOfExpertsGemmProfiler>;
+#endif
 
 class MoeFfnLayer {
 public:
@@ -17,9 +35,18 @@ public:
     struct ForwardParam {
         Tensor              input;
         Tensor              output;
+        Tensor              moe_fp16_buf;
+        Tensor              gate_fp32_buf;
         const MoeFfnWeight* weights;
         float               scale;
         int                 layer_id;
+
+        int          pf_batch_size        = 0;
+        float        output_scale         = 1.0f;
+        //Tensor       inter_buf_fp8{};
+        bool         use_shared_stream    = false;
+        cudaEvent_t  shared_expert_event  = nullptr;
+        cudaStream_t shared_expert_stream = nullptr;
     };
 
     void Forward(ForwardParam& p);
@@ -28,6 +55,7 @@ public:
 
 private:
     Tensor_<float> Gate(const Tensor& input, const LlamaDenseWeight& gate);
+    void Gate(const Tensor& input, const LlamaDenseWeight& gate, Tensor& output);
 
     void dump_logits(int token_num, int layer_id, int expert_num);
 
@@ -36,6 +64,7 @@ private:
     const int      moe_ep_rank_;
     const int      hidden_dim_;
     const MoeParam param_;
+    const QuantMode quant_mode_;
 
     cudaStream_t const stream_;
     LlamaLinear&       linear_;
@@ -57,8 +86,16 @@ private:
     Tensor         temp_;
     Tensor_<float> shared_scales_;
     ///////////////////////////////////////////////////////
-
     int2 expert_range_{};
+
+    int mlp_tp_size_ = 1;
+    int mlp_tp_rank_ = 0;
+
+    Buffer_<int> votes_{};
+    Buffer_<int> hists_{};
+    Tensor       cutlass_inout_buf_;
+
+    std::vector<int> shared_expert_inter_size_;
 };
 
 }  // namespace turbomind

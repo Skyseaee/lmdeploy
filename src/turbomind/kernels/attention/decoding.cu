@@ -31,9 +31,13 @@ constexpr auto get_kv_type(std::integral_constant<int, is_kv_int8>)
 template<class T>
 void dispatchDecoding(const AttentionParams<T>& params)
 {
-    const bool is_kv_int8     = params.quant_policy & QuantPolicy::kCacheKVInt8;
-    const bool is_kv_int4     = params.quant_policy & QuantPolicy::kCacheKVInt4;
-    const int  query_group_sz = params.num_heads / params.num_kv_heads;
+    static constexpr std::integral_constant<int, 128> kHeadDim{};
+
+    const bool is_kv_fp8         = params.quant_policy & QuantPolicy::kCacheKVFP8;
+    const bool is_kv_fp8_dynamic = params.quant_policy & QuantPolicy::kCacheKVFP8Dynamic;
+    const bool is_kv_int8        = params.quant_policy & QuantPolicy::kCacheKVInt8;
+    const bool is_kv_int4        = params.quant_policy & QuantPolicy::kCacheKVInt4;
+    const int  query_group_sz    = params.num_heads / params.num_kv_heads;
 
     using namespace attention;
 
@@ -75,16 +79,43 @@ void dispatchDecoding(const AttentionParams<T>& params)
     };
 
     auto dispatch_kv = [&](auto arch, const auto dim) -> bool {
-        FT_CHECK(!(is_kv_int4 && is_kv_int8));
-        if (is_kv_int4) {
-            return dispatch_h(arch, uint4_t{}, dim);
+
+        // NOTE(Alan): kv fp8 only support with sm80
+        if constexpr (std::is_same_v<decltype(arch), arch::Sm80>)
+        {
+            FT_CHECK(!(is_kv_int4 && is_kv_int8 && is_kv_fp8 && is_kv_fp8_dynamic));
+            if (is_kv_int4) {
+                return dispatch_h(arch, uint4_t{}, dim);
+            }
+            else if (is_kv_int8) {
+                return dispatch_h(arch, uint8_t{}, dim);
+            }
+    #ifdef ENABLE_FP8
+            else if (is_kv_fp8) {
+                return dispatch_h(arch, __nv_fp8_e4m3{}, dim);
+            }
+            else if (is_kv_fp8_dynamic) {
+                return dispatch_h(arch, fp8_dynamic{}, dim);
+            }
+    #endif
+            else {
+                return dispatch_h(arch, T{}, dim);
+            }
         }
-        else if (is_kv_int8) {
-            return dispatch_h(arch, uint8_t{}, dim);
+        else
+        {
+            FT_CHECK(!(is_kv_int4 && is_kv_int8));
+            if (is_kv_int4) {
+                return dispatch_h(arch, uint4_t{}, dim);
+            }
+            else if (is_kv_int8) {
+                return dispatch_h(arch, uint8_t{}, dim);
+            }
+            else {
+                return dispatch_h(arch, T{}, dim);
+            }
         }
-        else {
-            return dispatch_h(arch, T{}, dim);
-        }
+
         return false;
     };
 

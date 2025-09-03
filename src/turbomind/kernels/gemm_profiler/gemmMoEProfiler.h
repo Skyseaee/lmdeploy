@@ -21,18 +21,18 @@
 #include <string>
 #include <vector>
 
-#include "src/turbomind/utils/cuda_utils.h"
-#include "src/turbomind/utils/Tensor.h"
-#include "src/turbomind/kernels/moe/moe_kernels.h"
+#include "src/turbomind/core/quant_mode.h"
+#include "src/turbomind/kernels/cutlass_kernels/include/moe_kernels.h"
 #include "src/turbomind/kernels/gemm_profiler/gemmPluginProfiler.h"
-#include "src/turbomind/kernels/fused_gated_gemm/quantization.h"
+
+//namespace tkc = tensorrt_llm::kernels::cutlass_kernels;
 
 namespace tensorrt_llm::plugins
 {
 
-using CutlassMoeFCRunnerPtr = std::shared_ptr<tensorrt_llm::kernels::CutlassMoeFCRunnerInterface>;
-using MOEParallelismConfig = tensorrt_llm::kernels::MOEParallelismConfig;
-using MOEExpertScaleNormalizationMode = tensorrt_llm::kernels::MOEExpertScaleNormalizationMode;
+using CutlassMoeFCRunnerPtr = std::shared_ptr<tensorrt_llm::kernels::cutlass_kernels::CutlassMoeFCRunnerInterface>;
+using MOEParallelismConfig = tensorrt_llm::kernels::cutlass_kernels::MOEParallelismConfig;
+//using MOEExpertScaleNormalizationMode = tensorrt_llm_moe_fp8::kernels::MOEExpertScaleNormalizationMode;
 
 class MixtureOfExpertsGemmProfiler : public GemmPluginProfiler<tensorrt_llm::cutlass_extensions::CutlassGemmConfig,
                                      CutlassMoeFCRunnerPtr, GemmIDMoe, GemmIDMoeHash>
@@ -41,9 +41,9 @@ class MixtureOfExpertsGemmProfiler : public GemmPluginProfiler<tensorrt_llm::cut
     public:
         using Config = tensorrt_llm::cutlass_extensions::CutlassGemmConfig;
 
-        void setQuantMode(tensorrt_llm::common::QuantMode const &quantMode);
+        void setQuantMode(turbomind::QuantMode const& quantMode);
 
-	void setMaxProfileM(int maxProfileM)
+        void setMaxProfileM(int maxProfileM)
         {
             mMaxProfileM = maxProfileM;
         }
@@ -54,14 +54,14 @@ class MixtureOfExpertsGemmProfiler : public GemmPluginProfiler<tensorrt_llm::cut
                          const int                       experts_per_token,
                          const int                       expert_hidden_dim,
                          const int                       expert_inter_size,
-                         tensorrt_llm::ActivationType    act_type,
-                         MOEExpertScaleNormalizationMode normal_type,
+                         tensorrt_llm::kernels::cutlass_kernels::ActivationType    act_type,
+                         //MOEExpertScaleNormalizationMode normal_type,
                          MOEParallelismConfig            paral_config,
                          turbomind::DataType             dtype,
                          turbomind::DataType             wtype,
                          turbomind::DataType             otype);
 	
-	void setGemmToProfile(tensorrt_llm::kernels::GemmProfilerBackend::GemmToProfile gemm_to_profile);
+	void setGemmToProfile(tensorrt_llm::kernels::cutlass_kernels::GemmProfilerBackend::GemmToProfile gemm_to_profile);
 
     protected:
         void runTactic(int m, int n, int k, Config const &tactic, char *workspace, cudaStream_t const &stream) override;
@@ -78,22 +78,22 @@ class MixtureOfExpertsGemmProfiler : public GemmPluginProfiler<tensorrt_llm::cut
         void checkInit();
 
         bool init_backend = false;
-        tensorrt_llm::kernels::GemmProfilerBackend backend{};
+        tensorrt_llm::kernels::cutlass_kernels::GemmProfilerBackend backend{};
 
     private:
         size_t getBytePerElement(turbomind::DataType type);
 
-        tensorrt_llm::common::QuantMode mQuantMode = tensorrt_llm::common::QuantMode::fromDescription();
+        turbomind::QuantMode mQuantMode = turbomind::QuantMode::fromDescription();
 
-        turbomind::DataType mType = turbomind::DataType::TYPE_FP8_E4M3;
+        turbomind::DataType mType = turbomind::DataType::kFloat8_e4m3;
 
         // MoE param
         int m_expert_num;
         int m_experts_per_token;
         int m_expert_hidden_dim;
         int m_expert_inter_size;
-        tensorrt_llm::ActivationType m_act_type;
-        MOEExpertScaleNormalizationMode m_normal_type;
+        tensorrt_llm::kernels::cutlass_kernels::ActivationType m_act_type;
+        //MOEExpertScaleNormalizationMode m_normal_type;
         MOEParallelismConfig m_paral_config;
         turbomind::DataType m_dtype;
         turbomind::DataType m_wtype;

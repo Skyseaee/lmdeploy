@@ -554,18 +554,6 @@ template <>          struct num_elems<__nv_bfloat16>   { static constexpr int va
 template <>          struct num_elems<__nv_bfloat162>  { static constexpr int value = 2; };
 #endif
 
-template<typename T, int num> struct packed_as;
-template<typename T>          struct packed_as<T, 1>              { using type = T; };
-template<>                    struct packed_as<half,  2>          { using type = half2; };
-template<>                    struct packed_as<float,  2>         { using type = float2; };
-template<>                    struct packed_as<int8_t, 2>         { using type = int16_t; };
-template<>                    struct packed_as<int32_t, 2>        { using type = int2; };
-template<>                    struct packed_as<half2, 1>          { using type = half; };
-#ifdef ENABLE_BF16
-template<> struct packed_as<__nv_bfloat16,  2> { using type = __nv_bfloat162; };
-template<> struct packed_as<__nv_bfloat162, 1> { using type = __nv_bfloat16;  };
-#endif
-
 inline __device__ float2 operator*(float2 a, float2 b) { return make_float2(a.x * b.x, a.y * b.y); }
 inline __device__ float2 operator*(float2 a, float  b) { return make_float2(a.x * b, a.y * b); }
 // clang-format on

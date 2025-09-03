@@ -33,16 +33,15 @@
 #pragma GCC diagnostic pop
 #endif // #ifndef _WIN32
 
-#include "src/turbomind/utils/cuda_utils.h"
-#include "src/turbomind/kernels/fused_gated_gemm/gemm_configs.h"
-#include "src/turbomind/kernels/fused_gated_gemm/quantization.h"
-#include "src/turbomind/kernels/fused_gated_gemm/cutlass_heuristic.h"
+#include "src/turbomind/core/quant_mode.h"
+#include "src/turbomind/kernels/cutlass_extensions/include/cutlass_extensions/gemm_configs.h"
+#include "src/turbomind/kernels/cutlass_kernels/cutlass_heuristic.h"
 #include "src/turbomind/kernels/fused_gated_gemm/cutlass_type_conversion.h"
+#include "src/turbomind/utils/cuda_utils.h"
 
 #include "src/turbomind/kernels/fused_gated_gemm/fused_gated_gemm.h"
 #include "src/turbomind/kernels/fused_gated_gemm/fused_gated_gemm_kernel_template_sm90.h"
 
-namespace tk = tensorrt_llm::common;
 namespace tkc = tensorrt_llm::cutlass_extensions;
 
 using namespace cute;
@@ -109,10 +108,19 @@ size_t typedGemmGatedKernelLauncher(Gemm gemm, typename Gemm::Arguments args, vo
     return gemm.get_workspace_size(args);
 }
 
-template <typename Gemm, bool SwapAB>
-typename Gemm::Arguments prepareGemmArgsSm90(void* D, void const* A, void const* B, void const* C_bias,
-    tk::QuantMode quantOption, int m, int n, int k, float scale_d0, float scale_d1, float scale_output,
-    tkc::CutlassGemmConfig gemmConfig)
+template<typename Gemm, bool SwapAB>
+typename Gemm::Arguments prepareGemmArgsSm90(void*                  D,
+                                             void const*            A,
+                                             void const*            B,
+                                             void const*            C_bias,
+                                             turbomind::QuantMode   quantOption,
+                                             int                    m,
+                                             int                    n,
+                                             int                    k,
+                                             float                  scale_d0,
+                                             float                  scale_d1,
+                                             float                  scale_output,
+                                             tkc::CutlassGemmConfig gemmConfig)
 {
     using ElementT = typename Gemm::ElementA;
     using StrideA = typename Gemm::GemmKernel::StrideA;
@@ -142,12 +150,27 @@ typename Gemm::Arguments prepareGemmArgsSm90(void* D, void const* A, void const*
     return args;
 }
 
-template <typename T, typename CTAShape, typename ClusterShape,
-    template <class> typename Activation = cutlass::epilogue::thread::SiLu, bool SwapAB = true>
-size_t genericGemmGatedKernelLauncherSm90(void* D, void const* A, void const* B, void const* C_bias,
-    tk::QuantMode quantOption, int m, int n, int k, float scale_d0, float scale_d1, float scale_output,
-    tkc::CutlassGemmConfig gemmConfig, char* workspace, size_t workspaceBytes, cudaStream_t stream,
-    int* occupancy = nullptr)
+template<typename T,
+         typename CTAShape,
+         typename ClusterShape,
+         template<class> typename Activation = cutlass::epilogue::thread::SiLu,
+         bool SwapAB                         = true>
+size_t genericGemmGatedKernelLauncherSm90(void*                  D,
+                                          void const*            A,
+                                          void const*            B,
+                                          void const*            C_bias,
+                                          turbomind::QuantMode   quantOption,
+                                          int                    m,
+                                          int                    n,
+                                          int                    k,
+                                          float                  scale_d0,
+                                          float                  scale_d1,
+                                          float                  scale_output,
+                                          tkc::CutlassGemmConfig gemmConfig,
+                                          char*                  workspace,
+                                          size_t                 workspaceBytes,
+                                          cudaStream_t           stream,
+                                          int*                   occupancy = nullptr)
 {
     TM_LOG_DEBUG(__PRETTY_FUNCTION__);
 
@@ -172,10 +195,23 @@ size_t genericGemmGatedKernelLauncherSm90(void* D, void const* A, void const* B,
 #endif // COMPILE_HOPPER_TMA_GEMMS
 }
 
-template <typename T, typename CTAShape>
-size_t dispatchGemmConfigSm90(void* D, void const* A, void const* B, void const* C_bias, tk::QuantMode quantOption,
-    int m, int n, int k, float scale_d0, float scale_d1, float scale_output, tkc::CutlassGemmConfig gemmConfig,
-    char* workspace, size_t workspaceBytes, cudaStream_t stream, int* occupancy = nullptr)
+template<typename T, typename CTAShape>
+size_t dispatchGemmConfigSm90(void*                  D,
+                              void const*            A,
+                              void const*            B,
+                              void const*            C_bias,
+                              turbomind::QuantMode   quantOption,
+                              int                    m,
+                              int                    n,
+                              int                    k,
+                              float                  scale_d0,
+                              float                  scale_d1,
+                              float                  scale_output,
+                              tkc::CutlassGemmConfig gemmConfig,
+                              char*                  workspace,
+                              size_t                 workspaceBytes,
+                              cudaStream_t           stream,
+                              int*                   occupancy = nullptr)
 {
     TM_LOG_DEBUG(__PRETTY_FUNCTION__);
     switch (gemmConfig.cluster_shape)
@@ -212,10 +248,23 @@ size_t dispatchGemmConfigSm90(void* D, void const* A, void const* B, void const*
     }
 }
 
-template <typename T>
-size_t dispatchGemmToCutlassSm90(void* D, void const* A, void const* B, void const* C_bias, tk::QuantMode quantOption,
-    int m, int n, int k, float scale_d0, float scale_d1, float scale_output, tkc::CutlassGemmConfig gemmConfig,
-    char* workspace, size_t workspaceBytes, cudaStream_t stream, int* occupancy = nullptr)
+template<typename T>
+size_t dispatchGemmToCutlassSm90(void*                  D,
+                                 void const*            A,
+                                 void const*            B,
+                                 void const*            C_bias,
+                                 turbomind::QuantMode   quantOption,
+                                 int                    m,
+                                 int                    n,
+                                 int                    k,
+                                 float                  scale_d0,
+                                 float                  scale_d1,
+                                 float                  scale_output,
+                                 tkc::CutlassGemmConfig gemmConfig,
+                                 char*                  workspace,
+                                 size_t                 workspaceBytes,
+                                 cudaStream_t           stream,
+                                 int*                   occupancy = nullptr)
 {
     TM_LOG_DEBUG(__PRETTY_FUNCTION__);
     static_assert(std::is_same_v<T, __nv_fp8_e4m3>, "fusedGatedGemmSm90 only support FP8(e4m3)");
@@ -286,10 +335,23 @@ CutlassFusedGatedGemmRunner<T>::~CutlassFusedGatedGemmRunner()
     TM_LOG_DEBUG(__PRETTY_FUNCTION__);
 }
 
-template <typename T>
-size_t CutlassFusedGatedGemmRunner<T>::dispatchToArch(void* D, void const* A, void const* B, void const* C_bias,
-    tk::QuantMode quantOption, int m, int n, int k, float scale_d0, float scale_d1, float scale_output,
-    tkc::CutlassGemmConfig gemmConfig, char* workspace, size_t workspaceBytes, cudaStream_t stream, int* occupancy)
+template<typename T>
+size_t CutlassFusedGatedGemmRunner<T>::dispatchToArch(void*                  D,
+                                                      void const*            A,
+                                                      void const*            B,
+                                                      void const*            C_bias,
+                                                      turbomind::QuantMode   quantOption,
+                                                      int                    m,
+                                                      int                    n,
+                                                      int                    k,
+                                                      float                  scale_d0,
+                                                      float                  scale_d1,
+                                                      float                  scale_output,
+                                                      tkc::CutlassGemmConfig gemmConfig,
+                                                      char*                  workspace,
+                                                      size_t                 workspaceBytes,
+                                                      cudaStream_t           stream,
+                                                      int*                   occupancy)
 {
     TM_LOG_DEBUG(__PRETTY_FUNCTION__);
     if constexpr (std::is_same_v<T, __nv_fp8_e4m3>)
@@ -316,10 +378,23 @@ size_t CutlassFusedGatedGemmRunner<T>::dispatchToArch(void* D, void const* A, vo
     return 0;
 }
 
-template <typename T>
-void CutlassFusedGatedGemmRunner<T>::gemm(void* D, void const* A, void const* B, void const* C_bias,
-    tk::QuantMode quantOption, int m, int n, int k, float scale_d0, float scale_d1, float scale_output,
-    tkc::CutlassGemmConfig gemmConfig, char* workspace, size_t workspaceBytes, cudaStream_t stream, int* occupancy)
+template<typename T>
+void CutlassFusedGatedGemmRunner<T>::gemm(void*                  D,
+                                          void const*            A,
+                                          void const*            B,
+                                          void const*            C_bias,
+                                          turbomind::QuantMode   quantOption,
+                                          int                    m,
+                                          int                    n,
+                                          int                    k,
+                                          float                  scale_d0,
+                                          float                  scale_d1,
+                                          float                  scale_output,
+                                          tkc::CutlassGemmConfig gemmConfig,
+                                          char*                  workspace,
+                                          size_t                 workspaceBytes,
+                                          cudaStream_t           stream,
+                                          int*                   occupancy)
 {
     TM_LOG_DEBUG(__PRETTY_FUNCTION__);
     dispatchToArch(D, A, B, C_bias, quantOption, m, n, k, scale_d0, scale_d1, scale_output, gemmConfig, workspace,
@@ -396,8 +471,21 @@ size_t CutlassFusedGatedGemmRunner<T>::getWorkspaceSizeImpl(int const m, int con
     {
         try
         {
-            size_t curr_workspace_size = CutlassFusedGatedGemmRunner<T>::dispatchToArch(
-                nullptr, nullptr, nullptr, nullptr, tk::QuantMode{}, m, n, k, 1.0, 1.0, 1.0, gemmConfig, nullptr, 0, 0);
+            size_t curr_workspace_size = CutlassFusedGatedGemmRunner<T>::dispatchToArch(nullptr,
+                                                                                        nullptr,
+                                                                                        nullptr,
+                                                                                        nullptr,
+                                                                                        turbomind::QuantMode{},
+                                                                                        m,
+                                                                                        n,
+                                                                                        k,
+                                                                                        1.0,
+                                                                                        1.0,
+                                                                                        1.0,
+                                                                                        gemmConfig,
+                                                                                        nullptr,
+                                                                                        0,
+                                                                                        0);
             workspace_size = std::max(workspace_size, curr_workspace_size);
         }
         catch (std::runtime_error& e)

@@ -19,6 +19,7 @@
 #include "src/turbomind/kernels/core/array_ops.h"
 #include "src/turbomind/kernels/gpt_kernels.h"
 #include "src/turbomind/utils/memory_utils.h"
+#include "src/turbomind/kernels/core/math.h"
 
 namespace turbomind {
 
@@ -205,5 +206,65 @@ void invokeTranspose2D_(T* dst, const T* src, int rows, int cols, cudaStream_t s
 }
 
 template void invokeTranspose2D_(uint32_t*, const uint32_t*, int, int, cudaStream_t);
+
+template<typename T>
+__global__ void transpose_weight(const T* src, T* dst, int s, int c)
+{
+    const int cid = threadIdx.x + blockIdx.x * blockDim.x;
+    const int sid = threadIdx.y + blockIdx.y * blockDim.y;
+    if (sid < s && cid < c) {
+        dst[cid * s + sid] = src[sid * c + cid];
+    }
+}
+
+template<typename T>
+void invokeTransposeWeight(const T* src, T* dst, int s, int c, cudaStream_t stream)
+{
+    const dim3 block{32, 16};
+    const dim3 grid(ceil_div<int>(c, block.x), ceil_div<int>(s, block.y));
+    
+    transpose_weight<<<grid, block, 0, stream>>>(src, dst, s, c);
+}
+    
+template void
+invokeTransposeWeight(const half* src, half* dst, int s, int c, cudaStream_t stream);
+
+#ifdef ENABLE_FP8
+template void
+invokeTransposeWeight(const __nv_fp8_e4m3* src, __nv_fp8_e4m3* dst, int s, int c, cudaStream_t stream);
+#endif
+#ifdef ENABLE_BF16
+template void
+invokeTransposeWeight(const __nv_bfloat16* src, __nv_bfloat16* dst, int s, int c, cudaStream_t stream);
+#endif
+
+template<typename T>
+__global__ void rescale_weight(T* weight, float w_s, int s, int c)
+{
+    const int cid = threadIdx.x + blockIdx.x * blockDim.x;
+    const int sid = threadIdx.y + blockIdx.y * blockDim.y;
+    if (sid < s && cid < c) {
+        weight[cid * s + sid] =  (T)((float)(weight[cid * s + sid]) * w_s);
+    }
+}
+
+template<typename T>
+void invokeRescaleWeight(T* weight, float w_s, int s, int c, cudaStream_t stream)
+{
+    const dim3 block{32, 16};
+    const dim3 grid(ceil_div<int>(c, block.x), ceil_div<int>(s, block.y));
+    
+    rescale_weight<<<grid, block, 0, stream>>>(weight, w_s, s, c);
+}
+
+template void
+invokeRescaleWeight(float* weight, float w_s, int s, int c, cudaStream_t stream);
+template void
+invokeRescaleWeight(half* weight, float w_s, int s, int c, cudaStream_t stream);
+
+#ifdef ENABLE_FP8
+template void
+invokeRescaleWeight(__nv_fp8_e4m3* weight, float w_s, int s, int c, cudaStream_t stream);
+#endif
 
 }  // namespace turbomind

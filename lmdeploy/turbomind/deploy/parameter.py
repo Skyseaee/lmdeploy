@@ -10,7 +10,7 @@ def ensure_fp8(tensors: torch.Tensor):
     result = []
     for tensor in tensors:
         if tensor is not None:
-            assert tensor.dtype == torch.float8_e4m3fn
+            assert tensor.dtype == torch.uint8
             result.append(tensor)
         else:
             result.append(None)
@@ -33,13 +33,13 @@ def requantize_qkv(weights: List[torch.Tensor],
                    scales: List[torch.Tensor]):
     # Credit to: https://github.com/vllm-project/vllm/pull/4332#issuecomment-2085560821
     device_q, device_k, device_v = [tensor.device for tensor in weights]
-    wq, wk, wv = [tensor.cpu() if tensor.is_cuda else tensor for tensor in weights]
+    wq, wk, wv = [tensor.view(dtype=torch.float8_e4m3fn).cpu() if tensor.is_cuda else tensor for tensor in weights]
     wq_scale, wk_scale, wv_scale = [s.cpu() if s.is_cuda else s for s in scales]
 
     w_scale = max(wq_scale, wk_scale, wv_scale)
-    qw = ((wq_scale / w_scale) * wq).to(device_q)
-    kw = ((wk_scale / w_scale) * wk).to(device_k)
-    vw = ((wv_scale / w_scale) * wv).to(device_v)
+    qw = ((wq_scale / w_scale) * wq).view(dtype=torch.uint8).to(device_q)
+    kw = ((wk_scale / w_scale) * wk).view(dtype=torch.uint8).to(device_k)
+    vw = ((wv_scale / w_scale) * wv).view(dtype=torch.uint8).to(device_v)
     return qw, kw, vw, w_scale.to(device_q)
 
 
@@ -49,16 +49,16 @@ def fused_w1w3(w1: torch.Tensor, w3: torch.Tensor, tp: int, dim: int):
         return x.view(x.size(0), tp, -1) if dim == 2 else x.view(tp, -1)
 
     device = w1.device
-    if w1.is_cuda and w1.dtype == torch.float8_e4m3fn:
-        w1 = w1.cpu()
-    if w3.is_cuda and w3.dtype == torch.float8_e4m3fn:
-        w3 = w3.cpu()
+    if w1.is_cuda and w1.dtype == torch.uint8:
+        w1 = w1.view(dtype=torch.float8_e4m3fn).cpu()
+    if w3.is_cuda and w3.dtype == torch.uint8:
+        w3 = w3.view(dtype=torch.float8_e4m3fn).cpu()
 
     # w1 means gate, w3 means up
     w31 = torch.cat((reshape(w3), reshape(w1)), dim=0)
 
     if w31.is_cpu:
-        w31 = w31.to(device)
+        w31 = w31.view(dtype=torch.uint8).to(device)
 
     # (2 * inter_size, hidden_dim)
     return w31.view(-1, w1.size(1))
@@ -67,6 +67,8 @@ def fused_w1w3(w1: torch.Tensor, w3: torch.Tensor, tp: int, dim: int):
 def identity(x):
     return x
 
+def inv(x):
+    return torch.reciprocal(x)
 
 def to_half(x: torch.Tensor):
     return x.to(torch.half)
@@ -136,19 +138,37 @@ class QuantWeightFP8(Parameter):
             wq, wk, wv, qkv_s = requantize_qkv([qw, kw, vw], [q_s, k_s, v_s])
             qkvo = wq, wk, wv, ow
 
+            qkv_weight_scale_inv = torch.reciprocal(qkv_s)
+            qkv_input_scale_inv = torch.reciprocal(q_is)
+            
+            o_weight_scale_inv = torch.reciprocal(o_s)
+            o_input_scale_inv = torch.reciprocal(o_is)
+
+            # '.qweight', '.weight_scale', '.input_scale', 
+            # '.input_scale_inv', '.weight_scale_inv', '.host_input_scale_inv'
             # qweight for qkv and o
             f(i, qkvo, 'qweight', identity)
             # scales for qkv
             f(i, qkv_s.unsqueeze(0), 'w_qkv.weight_scale', to_float)
             f(i, q_is.unsqueeze(0), 'w_qkv.input_scale', to_float)
+            f(i, qkv_input_scale_inv.unsqueeze(0), 'w_qkv.input_scale_inv', to_float)
+            f(i, qkv_input_scale_inv.unsqueeze(0), 'w_qkv.host_input_scale_inv', to_float)
+            f(i, qkv_weight_scale_inv.unsqueeze(0), 'w_qkv.weight_scale_inv', to_float)
+            
             # scales for o
             f(i, o_s.unsqueeze(0), 'wo.weight_scale', to_float)
             f(i, o_is.unsqueeze(0), 'wo.input_scale', to_float)
+            f(i, o_input_scale_inv.unsqueeze(0), 'wo.input_scale_inv', to_float)
+            f(i, o_input_scale_inv.unsqueeze(0), 'wo.host_input_scale_inv', to_float)
+            f(i, o_weight_scale_inv.unsqueeze(0), 'wo.weight_scale_inv', to_float)
         elif module_type == 'ffn':
             # qweight, weight_scale and input_scale for w1, w2 and w3
             f(i, ensure_fp8(g('qweight')), 'qweight', identity)
             f(i, ensure_fp32(g('weight_scale')), 'weight_scale', to_float)
             f(i, ensure_fp32(g('input_scale')), 'input_scale', to_float)
+            f(i, ensure_fp32(g('input_scale')), 'input_scale_inv', inv)
+            f(i, ensure_fp32(g('input_scale')), 'host_input_scale_inv', inv)
+            f(i, ensure_fp32(g('weight_scale')), 'weight_scale_inv', inv)
         else:
             raise ValueError(f"Module type {module_type} is not support!")
 
@@ -184,11 +204,11 @@ class PLora(Parameter):
         f(i, g('Plora_B.weight'), 'lora_b.weight', identity)
 
 
-def get_params(keys: List[str], bias=0, model_format=None):
+def get_params(keys: List[str], bias=0, model_format=None, quant_algo=None):
     ps = []
     if PLora.take(keys):
         ps.append(PLora())
-    if model_format == 'fp8':
+    if model_format == 'fp8' and quant_algo == 'fp8_static':
         if QuantWeightFP8.take(keys):
             ps.append(QuantWeightFP8())
     else:

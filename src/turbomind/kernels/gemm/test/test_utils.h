@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "src/turbomind/utils/rng_utils.h"
 #include "src/turbomind/macro.h"
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
@@ -53,32 +54,5 @@ void FC_Header();
 void FC_Print(const std::vector<float>& d);
 
 void LoadBinary(const std::string& path, size_t size, void* dst);
-
-class RNG {
-public:
-    RNG();
-    ~RNG();
-    void GenerateUInt(uint* out, size_t count);
-
-    template<typename T>
-    void GenerateUniform(T* out, size_t count, float scale = 1.f, float shift = 0.f);
-
-    template<typename T>
-    void GenerateNormal(T* out, size_t count, float scale = 1.f, float shift = 0.f);
-
-    void RandomBytes(Ref<Tensor> out_);
-
-    void UniformFloat(Ref<Tensor> out_, float scale = 1.f, float shift = 0.f);
-
-    void NormalFloat(Ref<Tensor> out_, float scale = 1.f, float shift = 0.f);
-
-    cudaStream_t stream() const;
-
-    void set_stream(cudaStream_t stream);
-
-private:
-    struct Impl;
-    std::unique_ptr<Impl> impl_;
-};
 
 }  // namespace turbomind

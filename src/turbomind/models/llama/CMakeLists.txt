@@ -24,7 +24,7 @@ add_library(Llama STATIC
         mla_utils.cu)
 set_property(TARGET Llama PROPERTY POSITION_INDEPENDENT_CODE  ON)
 set_property(TARGET Llama PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS  ON)
-target_link_libraries(Llama PUBLIC CUDA::cudart
+set(LLAMA_LIBRARIES CUDA::cudart
         engine
         core
         gemm2
@@ -40,4 +40,28 @@ target_link_libraries(Llama PUBLIC CUDA::cudart
         memory_utils
         cuda_utils
         logger
-        anomaly_handler)
+        anomaly_handler
+        rng_utils
+        rms_norm
+        cublasMMWrapper
+        custom_ar_kernels
+        pre_quantscale_kernel
+        env_utils)
+
+if(ENABLE_FP8)
+        list(APPEND LLAMA_LIBRARIES cuda_fp8_utils cublasFP8MMWrapper)
+endif()
+
+if(CUTLASS_FP8)
+        list(APPEND LLAMA_LIBRARIES cutlass_w8a8)
+endif()
+
+if(FUSED_GATED_GEMM)
+        list(APPEND LLAMA_LIBRARIES fused_gated_gemm gemm_profiler cutlass_src)
+endif()
+
+if(FUSED_MOE_FFN_GEMM)
+        list(APPEND LLAMA_LIBRARIES gemm_profiler moe_gemm_src cutlass_src fp8_blockscale_gemm_src moe_load_balance_kernels fpA_intB_gemm_src) # mixture_of_experts
+endif()
+
+target_link_libraries(Llama PUBLIC ${LLAMA_LIBRARIES})

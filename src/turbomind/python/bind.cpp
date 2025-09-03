@@ -6,6 +6,8 @@
 
 #include <cuda_runtime.h>
 
+#include <yaml-cpp/yaml.h>
+
 #include <pybind11/functional.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/pytypes.h>
@@ -103,6 +105,10 @@ DLManagedTensor* TritonTensorToDLManagedTensor(Tensor& tensor)
         case data_type_v<turbomind::half_t>:
             data_type.code = DLDataTypeCode::kDLFloat;
             data_type.bits = 16;
+            break;
+        case data_type_v<turbomind::fp8_e4m3_t>:
+            data_type.code = DLDataTypeCode::kDLInt;
+            data_type.bits = 8;
             break;
         case data_type_v<float>:
             data_type.code = DLDataTypeCode::kDLFloat;
@@ -358,7 +364,8 @@ PYBIND11_MODULE(_turbomind, m)
             .value("TYPE_FP16", kFloat16)
             .value("TYPE_FP32", kFloat32)
             .value("TYPE_FP64", kFloat64)
-            .value("TYPE_BF16", kBfloat16);
+            .value("TYPE_BF16", kBfloat16)
+            .value("TYPE_FP8_E4M3", kFloat8_e4m3);
 
         // memory type
         py::enum_<ft::DeviceType>(m, "MemoryType")
@@ -489,6 +496,9 @@ PYBIND11_MODULE(_turbomind, m)
 
                 turbomind::DataType data_type{};
 
+                const auto model_reader = YAML::Load(config)["model_config"];
+                auto torch_dtype = model_reader["torch_dtype"].as<std::string>();
+
                 if (weight_type == "half" || weight_type == "fp16" || weight_type == "float16"
                     || weight_type == "int4") {
                     data_type = turbomind::kFloat16;
@@ -502,6 +512,15 @@ PYBIND11_MODULE(_turbomind, m)
                 }
                 else if (weight_type == "fp8") {
                     data_type = turbomind::kBfloat16;
+                    if (torch_dtype == "half" || torch_dtype == "float16" || torch_dtype == "fp16") {
+                      data_type = turbomind::kFloat16;
+                    }
+                    std::cout << "------ Model torch_dtype: " << torch_dtype << ", weight_type: " << weight_type \
+                      << ", Choose " << to_string(data_type) << " DataType to instantiate the model ------" \
+                      << std::endl;
+
+                    TM_LOG_INFO("Model torch_dtype: %s, weigh_type: %s, Choose %s DataType to instantiate the model.",
+                        torch_dtype.c_str(), weight_type.c_str(), to_string(data_type));
                 }
                 else {
 #ifdef ENABLE_FP32

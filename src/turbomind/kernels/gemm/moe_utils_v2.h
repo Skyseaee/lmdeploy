@@ -35,6 +35,21 @@ void invokeMoeDispatch(Ref<Tensor>   out_,  //
                        int           expert_per_token,
                        cudaStream_t  st);
 
+void invokeMaskExpertsByVoteFusedV2(
+    float*       logits,
+    int*         votes,
+    int*         hists,
+    int          tokens,
+    int          expert_num,
+    int          top_k,
+    int          keep_expert_num,
+    cudaStream_t stream
+);
+
+template<class T>
+void invokeMoeGather(
+    T* dst, const T* src, const int* f2n, int tokens, int experts_per_token, int dims, cudaStream_t st);
+
 void invokeMoeDispatchScales(Ref<Tensor>   out_,  //
                              const Tensor& src,
                              const int*    f2n,
@@ -52,6 +67,24 @@ void invokeMoeCombine(Ref<Tensor>   out_,
 
 void invokeMoeSoftmaxMaskTopKGroups(
     float* logits, int token_num, int expert_num, int group_size, int top_k, cudaStream_t st);
+
+template<class T>
+void invokeMoeReduce(T*           dst,
+                     const T*     src,
+                     const float* scales,
+                     const int*   en2f,
+                     const float* dst_scales,
+                     int          tokens,
+                     int          experts_per_token,
+                     int          dims,
+                     float        dst_scale,
+                     cudaStream_t st);
+
+template<class T>
+void invokeFusedMoeReduce(
+    T* dst, const T* src, const float* dst_scales, int tokens, int dims, float dst_scale, cudaStream_t st);
+
+void invokeMaskMoeTopKGroups(float* logits, int token_num, int expert_num, int group_size, int top_k, cudaStream_t st);
 
 // Sample `e` from `E` experts uniformly for every token
 std::vector<int> SampleUniform(int token_num, int expert_num, int exp_per_tok, std::mt19937& g);

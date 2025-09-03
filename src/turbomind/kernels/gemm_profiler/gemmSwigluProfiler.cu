@@ -18,7 +18,7 @@
 #include <numeric>
 #include <cutlass/util/reference/device/tensor_fill.h>
 
-#include "src/turbomind/kernels/fused_gated_gemm/gemm_configs.h"
+#include "cutlass_extensions/gemm_configs.h"
 #include "src/turbomind/kernels/gemm_profiler/gemmSwigluProfiler.h"
 
 using tensorrt_llm::plugins::GemmSwigluPluginProfiler;
@@ -27,9 +27,8 @@ void GemmSwigluPluginProfiler::initTmpData(int m, int n, int k, char* workspace,
 {
     size_t bpe = getBytePerElement(mType);
 
-    if (mType == turbomind::DataType::TYPE_FP8_E4M3)
-    {
+    if (mType == turbomind::DataType::kFloat8_e4m3) {
         cutlass::reference::device::BlockFillRandomUniform(reinterpret_cast<cutlass::float_e4m3_t*>(workspace),
-            m * k + n * k + 1 * n, 42, cutlass::float_e4m3_t{128}, -cutlass::float_e4m3_t{128}, -1, stream);
+            m * k + n * k + 1 * n, 42, cutlass::float_e4m3_t{128}, -cutlass::float_e4m3_t{128}, -1, 0, stream);
     }
 }

@@ -315,23 +315,15 @@ class TurboMind:
                 f'({config_path}), {engine_config.tp} vs '
                 f'{cfg.tensor_para_size}, using tp={cfg.tensor_para_size}')
 
-        if cfg.enable_expert_parallel != engine_config.enable_expert_parallel:
+        if cfg.mlp_ep_size != engine_config.mlp_ep_size:
             logger.warn(
-                'enable_expert_parallel in engine_config is different from in config.yaml'
-                f'({config_path}), {engine_config.enable_expert_parallel} vs '
-                f'{cfg.enable_expert_parallel}, using enable_expert_parallel={cfg.enable_expert_parallel}')
-
-        if cfg.enable_attention_dp != engine_config.enable_attention_dp:
-            logger.warn(
-                'enable_attention_dp in engine_config is different from in config.yaml'
-                f'({config_path}), {engine_config.enable_attention_dp} vs '
-                f'{cfg.enable_attention_dp}, using enable_attention_dp={cfg.enable_attention_dp}')
+                'mlp_ep_size in engine_config is different from in config.yaml'
+                f'({config_path}), {engine_config.mlp_ep_size} vs '
+                f'{cfg.mlp_ep_size}, using mlp_ep_size={cfg.mlp_ep_size}')
 
         self.gpu_count = cfg.tensor_para_size
         engine_config.tp = cfg.tensor_para_size
         engine_config.ep = cfg.expert_para_size
-        engine_config.enable_expert_parallel = cfg.enable_expert_parallel
-        engine_config.enable_attention_dp = cfg.enable_attention_dp
 
         self._postprocess_config(cfg, engine_config)
 

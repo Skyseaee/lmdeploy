@@ -19,12 +19,14 @@ public:
         kFusedAdd
     };
 
-    explicit LlamaLinear(cudaStream_t stream);
+    explicit LlamaLinear(cudaStream_t stream, const ModelParam& model, const EngineParam& engine, const MoeParam& moe);
 
     Tensor forward(const Tensor&           input,  //
                    const LlamaDenseWeight& weight,
-                   Type                    type   = kGemm,
-                   std::optional<Tensor>   output = {});
+                   Type                    type       = kGemm,
+                   std::optional<Tensor>   output     = {},
+                   void*                   param      = nullptr,
+                   cudaStream_t            cur_stream = nullptr);
 
     void forward_moe(Tensor&                 output,
                      const Tensor&           input,
@@ -33,6 +35,18 @@ public:
                      const LlamaDenseWeight& weight,
                      Type                    type,
                      gemm::Context*          context);
+
+    void forward_cutlass_moe(Tensor&               output,
+                             Tensor&               input,
+                             Tensor&               logits,
+                             //Tensor&               inter_buf_fp8,
+                             Tensor&               cutlass_inout_buf,
+                             const LlamaFfnWeight& weights,
+                             int                   tokens,
+                             int                   expert_num,
+                             bool                  use_shared_stream,
+                             cudaEvent_t           shared_expert_event,
+                             cudaStream_t          shared_expert_stream);
 
     void set_measure(bool measure);
 

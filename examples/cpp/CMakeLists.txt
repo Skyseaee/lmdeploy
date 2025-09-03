@@ -1,0 +1,7 @@
+# Copyright (c) OpenMMLab. All rights reserved.
+add_executable(llama_triton_example llama_triton_example.cc mpi_utils.cc)
+target_link_libraries(llama_triton_example PUBLIC -lcublas -lcublasLt -lcudart
+        TurboMind mpi_utils nccl_utils
+        nvtx_utils -lpthread yaml-cpp::yaml-cpp)
+
+install(TARGETS llama_triton_example DESTINATION ${CMAKE_INSTALL_PREFIX}/bin)

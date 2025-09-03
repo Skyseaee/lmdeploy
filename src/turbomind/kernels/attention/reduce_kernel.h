@@ -37,7 +37,9 @@ struct Reduce {
                                int            stride_k,
                                int            offset_k,
                                SharedStorage& storage,
-                               std::integral_constant<bool, IsFinal>)
+                               std::integral_constant<bool, IsFinal>,
+                               bool           fuse_attention_quant = false,
+                               float          fp8_qscale = 1.0f)
     {
         const int warp_id = threadIdx.x / WARP_SIZE;
         const int lane_id = threadIdx.x % WARP_SIZE;
@@ -195,7 +197,12 @@ struct Reduce {
             if (ki == 0 && hi < hi_end) {
                 if constexpr (IsFinal) {
                     const int offset = (query_idx * head_num + head_idx + hi) * HeadDim + di;
-                    Store(&out[offset], cast<T>((Vec&)storage.O[hi][ki][di]));
+#ifdef ENABLE_FP8
+                    if (fuse_attention_quant)
+                        Store(&reinterpret_cast<__nv_fp8_e4m3 *>(out)[offset], quant<__nv_fp8_e4m3>((Vec&)storage.O[hi][ki][di], fp8_qscale));
+                    else
+#endif
+                        Store(&out[offset], cast<T>((Vec&)storage.O[hi][ki][di]));
                 }
                 else {
                     const int offset =

@@ -2,7 +2,7 @@
 cmake_minimum_required(VERSION 3.8)
 project(fused_gated_gemm)
 
-add_library(${PROJECT_NAME} STATIC cutlass_heuristic.cu gemm_swiglu_e4m3.cu)
+add_library(${PROJECT_NAME} STATIC gemm_swiglu_e4m3.cu)
 
 # The CUTLASS kernels for Hopper require sm90a to be enabled.
 # This is done via the below gencode option, BUT that creates kernels for both sm90 and sm90a.

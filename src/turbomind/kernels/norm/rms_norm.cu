@@ -119,6 +119,119 @@ void invokeRMSNorm(Tensor& out, const Tensor& x, const Tensor& w, float eps, cud
     TM_DISPATCH_PRIMARY_DTYPES(x.dtype(), invoke);
 }
 
+#ifdef ENABLE_FP8
+
+namespace kernel {
+
+template<class TOut, class T, class Accum, int block_dim, int vec_size>
+__global__ void RMSNormAndQuant(TOut*    dst,
+                                int      dst_ld,
+                                const T* src,
+                                int      src_ld,
+                                const T* __restrict__ weights,
+                                int   dims,
+                                int   num,
+                                float eps,
+                                float qscale,
+                                float inv_dims)
+{
+    const int ti = blockIdx.x;
+    const int di = threadIdx.x * vec_size;
+
+    if (ti >= num) {
+        return;
+    }
+
+    src += src_ld * ti;
+
+    Array<Accum, vec_size> accum{};
+    Array<T, vec_size>     vec;
+
+    for (int i = di; i < dims; i += block_dim * vec_size) {
+        Load(vec, &src[i]);
+        Array<Accum, vec_size> tmp = cast<Accum>(vec);
+        using namespace ops;
+        accum = accum + tmp * tmp;
+    }
+
+    float sum{};
+    PRAGMA_UNROLL
+    for (int i = 0; i < vec_size; ++i) {
+        sum += accum[i];
+    }
+
+    using BlockReduce = cub::BlockReduce<Accum, block_dim>;
+    __shared__ typename BlockReduce::TempStorage temp_storage;
+
+    sum = BlockReduce{temp_storage}.Sum(sum);
+
+    __shared__ float shared_sum;
+
+    if (threadIdx.x == 0) {
+        shared_sum = rsqrtf(sum * inv_dims + eps);
+    }
+
+    __syncthreads();
+
+    sum = shared_sum * qscale;
+
+    dst += dst_ld * ti;
+
+    Array<T, vec_size> sv;
+    for (int i = di; i < dims; i += block_dim * vec_size) {
+        Load(vec, &src[i]);
+        Ldg(sv, &weights[i]);
+
+        Array<TOut, vec_size> out;
+        PRAGMA_UNROLL
+        for (int c = 0; c < vec_size; ++c) {
+            out[c] = (TOut)((float)vec[c] * sum * (float)sv[c]);
+            // vec[c] = (T)((float)vec[c] * sum * (float)sv[c]);
+        }
+        Store(&dst[i], out);
+    }
+}
+}  // namespace kernel
+
+void invokeRMSNormAndQuant(Tensor& out, const Tensor& x, const Tensor& w, float eps, float qscale, cudaStream_t st)
+{
+    TM_CHECK(x.ndim() == 2);
+    TM_CHECK(out.shape() == x.shape());
+    TM_CHECK(out.dtype() == x.dtype());
+    TM_CHECK(w.dtype() == x.dtype() && w.shape(-1) == x.shape(-1));
+
+    if (x.size() == 0) {
+        return;
+    }
+
+    auto invoke = [&](auto t) {
+        using T = decltype(t);
+        using TOut = __nv_fp8_e4m3;
+
+        const auto [num, dim] = x.shapes(0, 1);
+
+        constexpr int vec_size = 16 / sizeof(T);
+
+        constexpr int threads = 512;
+        const int     blocks  = num;
+
+        kernel::RMSNormAndQuant<TOut, T, float, threads, vec_size>
+            <<<blocks, threads, 0, st>>>((TOut*)out.raw_data(),  //
+                                         out.stride(0),
+                                         (const T*)x.raw_data(),
+                                         x.stride(0),
+                                         (const T*)w.raw_data(),
+                                         dim,
+                                         num,
+                                         eps,
+                                         qscale,
+                                         1.f / dim);
+    };
+
+    TM_DISPATCH_PRIMARY_DTYPES(x.dtype(), invoke);
+}
+#endif
+
 namespace kernel {
 
 template<class T, class A, int vec_size, int max_dim>
@@ -393,6 +506,148 @@ void invokeResidualBiasRMSNorm(void*        hidden_states,
                                                                                            num,
                                                                                            eps,
                                                                                            1.f / dims);
+    };
+
+    TM_DISPATCH_PRIMARY_DTYPES(dtype, invoke);
+}
+
+// r' <- r + (h + b)
+// h' <- norm(r') * w
+template<class T, class Tacc, int block_dim, int vec_size>
+__global__ void BiasResidualRMSNormAndQuantFP8Kernel(T* __restrict__ residual,
+                                                     __nv_fp8_e4m3* __restrict__ hidden_states_fp8,
+                                                     __nv_fp8_e4m3* __restrict__ moe_fp8_buf,
+                                                     T* __restrict__ moe_fp16_buf,
+                                                     T* __restrict__ hidden_states,
+                                                     const T* __restrict__ weights,
+                                                     const T* __restrict__ bias,
+                                                     const float shared_expert_scale,
+                                                     const float moe_expert_scale,
+                                                     int         dims,
+                                                     int         num,
+                                                     float       eps,
+                                                     float       inv_dims)
+{
+    const int ti = blockIdx.x;
+    const int di = threadIdx.x * vec_size;
+
+    if (ti >= num) {
+        return;
+    }
+
+    residual += dims * ti;
+    hidden_states += dims * ti;
+    hidden_states_fp8 += dims * ti;
+    moe_fp8_buf  = moe_fp8_buf ? moe_fp8_buf + dims * ti : nullptr;
+    moe_fp16_buf = moe_fp16_buf ? moe_fp16_buf + dims * ti : nullptr;
+
+    Array<Tacc, vec_size> accum{};
+
+    Array<T, vec_size>             r_vec;
+    Array<T, vec_size>             h_vec;
+    Array<__nv_fp8_e4m3, vec_size> h_fp8_vec;
+    Array<__nv_fp8_e4m3, vec_size> moe_fp8_vec;
+    Array<T, vec_size>             moe_fp16_vec;
+    Array<T, vec_size>             b_vec;
+
+    for (int i = di; i < dims; i += block_dim * vec_size) {
+        Load(r_vec, &residual[i]);
+        Load(h_vec, &hidden_states[i]);
+
+        using namespace ops;
+        r_vec = r_vec + h_vec;
+
+        if (bias) {
+            Ldg(b_vec, &bias[i]);
+            r_vec = r_vec + b_vec;
+        }
+
+        Store(&residual[i], r_vec);
+
+        Array<Tacc, vec_size> tmp = cast<Tacc>(r_vec);
+
+        accum = accum + tmp * tmp;
+    }
+
+    float sum{};
+    PRAGMA_UNROLL
+    for (int i = 0; i < vec_size; ++i) {
+        sum += accum[i];
+    }
+
+    using BlockReduce = cub::BlockReduce<Tacc, block_dim>;
+    __shared__ typename BlockReduce::TempStorage temp_storage;
+
+    sum = BlockReduce{temp_storage}.Sum(sum);
+
+    __shared__ float shared_sum;
+
+    if (threadIdx.x == 0) {
+        shared_sum = rsqrtf(sum * inv_dims + eps);
+    }
+
+    __syncthreads();
+
+    sum = shared_sum;
+
+    Array<T, vec_size> w_vec;
+    for (int i = di; i < dims; i += block_dim * vec_size) {
+        Load(r_vec, &residual[i]);
+        Ldg(w_vec, &weights[i]);
+        PRAGMA_UNROLL
+        for (int c = 0; c < vec_size; ++c) {
+            r_vec[c] = (T)((float)r_vec[c] * sum) * w_vec[c];
+            h_fp8_vec[c] = (__nv_fp8_e4m3)((float)r_vec[c] * shared_expert_scale);
+            if (moe_fp8_buf)
+                moe_fp8_vec[c] = (__nv_fp8_e4m3)((float)r_vec[c] * moe_expert_scale);
+        }
+
+        Store(&hidden_states_fp8[i], h_fp8_vec);
+        if (moe_fp16_buf)
+            Store(&moe_fp16_buf[i], r_vec);
+        if (moe_fp8_buf)
+            Store(&moe_fp8_buf[i], moe_fp8_vec);
+    }
+}
+
+void invokeResidualBiasRMSNormAndQuantFP8(void*        hidden_states_fp8,
+                                          void*        residual,
+                                          void*        moe_fp8_buf,
+                                          void*        moe_fp16_buf,
+                                          void*        hidden_states,
+                                          const void*  weights,
+                                          const void*  bias,
+                                          const float  shared_expert_scale,
+                                          const float  moe_expert_scale,
+                                          DataType     dtype,
+                                          int          dims,
+                                          int          num,
+                                          float        eps,
+                                          cudaStream_t st)
+{
+    if (num == 0) {
+        return;
+    }
+    auto invoke = [&](auto t) {
+        using T                       = decltype(t);
+        constexpr int vec_size        = sizeof(uint4) / sizeof(T);
+        constexpr int threads         = 512;
+        const int     blocks          = num;
+
+        BiasResidualRMSNormAndQuantFP8Kernel<T, float, threads, vec_size>
+            <<<blocks, threads, 0, st>>>((T*)residual,  //
+                                         (__nv_fp8_e4m3*)hidden_states_fp8,
+                                         (__nv_fp8_e4m3*)moe_fp8_buf,
+                                         (T*)moe_fp16_buf,
+                                         (T*)hidden_states,
+                                         (const T*)weights,
+                                         (const T*)bias,
+                                         shared_expert_scale,
+                                         moe_expert_scale,
+                                         dims,
+                                         num,
+                                         eps,
+                                         1.f / dims);
     };
 
     TM_DISPATCH_PRIMARY_DTYPES(dtype, invoke);

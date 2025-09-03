@@ -19,10 +19,9 @@
 #include <vector>
 #include <cuda_runtime_api.h>
 
-#include "src/turbomind/kernels/fused_gated_gemm/gemm_configs.h"
-#include "src/turbomind/kernels/fused_gated_gemm/quantization.h"
+#include "src/turbomind/core/quant_mode.h"
+#include "src/turbomind/kernels/cutlass_extensions/include/cutlass_extensions/gemm_configs.h"
 
-namespace tk = tensorrt_llm::common;
 namespace tkc = tensorrt_llm::cutlass_extensions;
 
 namespace tensorrt_llm
@@ -46,10 +45,22 @@ public:
 
     virtual ~CutlassFusedGatedGemmRunnerInterface() {}
 
-    virtual void gemm(void* D, void const* A, void const* B, void const* C_bias, tk::QuantMode quantOption, int m,
-        int n, int k, float scale_d0, float scale_d1, float scale_output, tkc::CutlassGemmConfig gemmConfig,
-        char* workspace, size_t workspaceBytes, cudaStream_t stream, int* occupancy = nullptr)
-        = 0;
+    virtual void gemm(void*                  D,
+                      void const*            A,
+                      void const*            B,
+                      void const*            C_bias,
+                      turbomind::QuantMode   quantOption,
+                      int                    m,
+                      int                    n,
+                      int                    k,
+                      float                  scale_d0,
+                      float                  scale_d1,
+                      float                  scale_output,
+                      tkc::CutlassGemmConfig gemmConfig,
+                      char*                  workspace,
+                      size_t                 workspaceBytes,
+                      cudaStream_t           stream,
+                      int*                   occupancy = nullptr) = 0;
 
     // Returns desired workspace size in bytes.
     virtual size_t getWorkspaceSize(int const m, int const n, int const k) = 0;
@@ -64,9 +75,22 @@ public:
     CutlassFusedGatedGemmRunner();
     ~CutlassFusedGatedGemmRunner();
 
-    void gemm(void* D, void const* A, void const* B, void const* C_bias, tk::QuantMode quantOption, int m, int n, int k,
-        float scale_d0, float scale_d1, float scale_output, tkc::CutlassGemmConfig gemmConfig, char* workspace,
-        size_t workspaceBytes, cudaStream_t stream, int* occupancy = nullptr) override;
+    void gemm(void*                  D,
+              void const*            A,
+              void const*            B,
+              void const*            C_bias,
+              turbomind::QuantMode   quantOption,
+              int                    m,
+              int                    n,
+              int                    k,
+              float                  scale_d0,
+              float                  scale_d1,
+              float                  scale_output,
+              tkc::CutlassGemmConfig gemmConfig,
+              char*                  workspace,
+              size_t                 workspaceBytes,
+              cudaStream_t           stream,
+              int*                   occupancy = nullptr) override;
 
     // Returns desired workspace size in bytes.
     size_t getWorkspaceSize(int const m, int const n, int const k) override;
@@ -88,9 +112,22 @@ public:
     };
 
 private:
-    size_t dispatchToArch(void* D, void const* A, void const* B, void const* C_bias, tk::QuantMode quantOption, int m,
-        int n, int k, float scale_d0, float scale_d1, float scale_output, tkc::CutlassGemmConfig gemmConfig,
-        char* workspace, size_t workspaceBytes, cudaStream_t stream, int* occupancy = nullptr);
+    size_t dispatchToArch(void*                  D,
+                          void const*            A,
+                          void const*            B,
+                          void const*            C_bias,
+                          turbomind::QuantMode   quantOption,
+                          int                    m,
+                          int                    n,
+                          int                    k,
+                          float                  scale_d0,
+                          float                  scale_d1,
+                          float                  scale_output,
+                          tkc::CutlassGemmConfig gemmConfig,
+                          char*                  workspace,
+                          size_t                 workspaceBytes,
+                          cudaStream_t           stream,
+                          int*                   occupancy = nullptr);
 
     size_t getWorkspaceSizeImpl(int const m, int const n, int const k);
 

@@ -2,7 +2,9 @@
 
 #pragma once
 
+#include "src/turbomind/core/core.h"
 #include "src/turbomind/macro.h"
+
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
 #include <memory>
@@ -22,6 +24,10 @@ public:
 
     template<typename T>
     void GenerateNormal(T* out, size_t count, float scale = 1.f, float shift = 0.f);
+
+    void UniformFloat(Ref<Tensor> out_, float scale = 1.f, float shift = 0.f);
+
+    void NormalFloat(Ref<Tensor> out_, float scale = 1.f, float shift = 0.f);
 
     cudaStream_t stream() const;
 

@@ -216,6 +216,7 @@ bool test_moe_gate(int                     tokens,  //
         gemm::CacheFlushing::flush();
         cudaMemset(accum.data().get(), 0, sizeof(int) * accum.size());
         cudaMemset(masks.data().get(), -1, sizeof(int8_t) * masks.size());
+        // TODO(Alan): 传入参数有问题
         invokeMoeGate_V2(f2n.data().get(),
                          en2f.data().get(),
                          offsets.data().get(),

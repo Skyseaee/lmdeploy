@@ -17,10 +17,10 @@
 #pragma once
 
 #ifdef ENABLE_FP8
+#include <cuda_fp16.h>
 #include <cuda_fp8.h>
 #include <cuda_runtime.h>
 #include <stdint.h>
-
 
 inline __device__ float half_to_float(uint16_t h) {
   float f;

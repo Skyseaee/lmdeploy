@@ -12,6 +12,12 @@ struct MMA_16816 {
 struct MMA_81616 {
 };  // MMA_16816 transposed
 
+struct MMA_81616_FP8 {
+};  // MMA_16816 transposed for fp8 kvcache static
+
+struct MMA_81616_FP8_Dynamic {
+};  // MMA_16816 transposed for fp8 kvcache dynamic
+
 struct MMA_1688 {
 };
 

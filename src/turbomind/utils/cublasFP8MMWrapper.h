@@ -37,18 +37,18 @@ public:
                        cudaStream_t     stream,
                        cublasAlgoMap*   map,
                        std::mutex*      mu,
-                       IAllocator*      allocator);
+                       void*            cublas_workspace,
+                       void*            cublas_workspace_qgemm);
 
     cublasFP8MMWrapper(cublasHandle_t   cublas_handle,
                        cublasLtHandle_t cublaslt_handle,
                        cudaStream_t     stream,
                        cublasAlgoMap*   map,
                        std::mutex*      mu,
-                       IAllocator*      allocator);
+                       void*            cublas_workspace,
+                       void*            cublas_workspace_qgemm);
 
     virtual ~cublasFP8MMWrapper();
-
-    cublasFP8MMWrapper(const cublasFP8MMWrapper& wrapper);
 
     virtual void cublasVersionCheck() override;
 

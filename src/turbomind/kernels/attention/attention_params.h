@@ -81,6 +81,10 @@ struct AttentionParams {
     // debug
     float* qk;
     T*     pr;
+
+    // NOTE(Alan): for fp8 quant
+    bool  fuse_attention_quant;
+    float fp8_qscale;
 };
 
 template<class CacheIterFactory, class SFINAE = void>

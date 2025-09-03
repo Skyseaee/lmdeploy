@@ -188,11 +188,13 @@ struct Impl<MMA_SIMT, T_, Tkv_, CTA_H_, CTA_Q_, CTA_S_, WARP_H_, WARP_Q, WARP_S,
     __device__ static void SetSmemKV(GmemIterK& gmem_K, GmemIterV& gmem_V, SharedStorage& storage, bool offset_kv)
     {
         int pred = offset_kv;
-        if constexpr (kQuantKV) {
+        if constexpr (kQuantKV) 
+        {
             gmem_K.SetSmem(storage.KV.data(), storage.KVp);
             gmem_V.SetSmem(storage.KV.data() + pred * SmemLayoutK::kSize, storage.KVp + pred * SmemLayoutKVp::kSize);
         }
-        else {
+        else
+        {
             gmem_K.SetSmem(storage.KV.data());
             gmem_V.SetSmem(storage.KV.data() + pred * SmemLayoutK::kSize);
         }
@@ -252,16 +254,17 @@ struct Impl<MMA_SIMT, T_, Tkv_, CTA_H_, CTA_Q_, CTA_S_, WARP_H_, WARP_Q, WARP_S,
 
     struct StateQK {
         PointerKV smem_K;
-        T*        smem_K_param;
         FragQ     frag_Q;
         FragK     frag_K;
         DataK     data_K;
+        T*        smem_K_param;
         ParamK    param_K;
 
         __device__ StateQK(SharedStorage& storage, FragQ frag_Q_)
         {
             smem_K       = storage.KV.data();
             smem_K_param = storage.KVp;
+
             if constexpr (!kUseSmemQ) {
                 PRAGMA_UNROLL
                 for (int m = 0; m < K_M; ++m) {
@@ -360,10 +363,10 @@ struct Impl<MMA_SIMT, T_, Tkv_, CTA_H_, CTA_Q_, CTA_S_, WARP_H_, WARP_Q, WARP_S,
 
     struct StatePV {
         PointerKV smem_V;
-        T*        smem_V_param;
         FragP     frag_P;
         FragV     frag_V;
         DataV     data_V;
+        T*        smem_V_param;
         ParamV    param_V;
 
         __device__ StatePV(SharedStorage& storage, bool offset = false)

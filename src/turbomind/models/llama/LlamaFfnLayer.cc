@@ -22,6 +22,10 @@
 #include "src/turbomind/models/llama/llama_utils.h"
 #include "src/turbomind/utils/anomaly_handler.h"
 
+#include "src/turbomind/utils/nvtx_utils.h"
+#include "src/turbomind/utils/memory_utils.h"
+#include "src/turbomind/utils/cuda_fp8_utils.h"
+
 namespace turbomind {
 
 void LlamaFfnLayer::activation(Tensor& gating, Tensor& inter, cudaStream_t stream)
@@ -32,15 +36,22 @@ void LlamaFfnLayer::activation(Tensor& gating, Tensor& inter, cudaStream_t strea
 
 void LlamaFfnLayer::forward(ForwardParam param)
 {
-    NvtxScope scope("ffn");
-
     const auto& mlp = *param.weights;
+    /**
+     * input_tensors:
+     *   \param ffn_input [token_num, hidden_dimension]
+     *
+     * output_tensors:
+     *   \param ffn_output [token_num, hidden_dimension]
+     */
+
+    NvtxScope scope("ffn");
 
     const int token_num  = param.input.shape(0);
     const int inter_size = mlp.inter_size;
     const int layer_id   = param.layer_id;
 
-    const auto stream = core::Context::stream().handle();
+    const auto stream = param.cur_stream == nullptr ? core::Context::stream().handle() : param.cur_stream;
 
     Tensor gating;
     Tensor inter;
@@ -48,7 +59,12 @@ void LlamaFfnLayer::forward(ForwardParam param)
     if (mlp.fused_gating_intermediate.weight) {
         const auto type = mlp.is_fused_silu ? LlamaLinear::kFusedSiluFfn : LlamaLinear::kGemm;
 
-        auto mix = linear_.forward(param.input, mlp.fused_gating_intermediate, type);
+        float fp8_quant_output_scale = 1.0f;
+        if (mlp.output.quant_mode.isFP8Static() && mlp.fused_gating_intermediate.quant_mode.isFP8Static())
+            fp8_quant_output_scale = *mlp.output.host_input_scale_inv.data<float>();
+
+        auto mix =
+            linear_.forward(param.input, mlp.fused_gating_intermediate, type, {}, (void*)(&fp8_quant_output_scale), stream);
         sync_check_cuda_error();
 
         gating = mix.slice({0, 0}, {(int)token_num, inter_size});
@@ -57,11 +73,11 @@ void LlamaFfnLayer::forward(ForwardParam param)
         }
     }
     else {
-        gating = linear_.forward(param.input, mlp.gating, LlamaLinear::kGemm);
+        gating = linear_.forward(param.input, mlp.gating, LlamaLinear::kGemm, {}, nullptr, stream);
         sync_check_cuda_error();
         TM_DEBUG_TENSOR(gating, Concat("w1", layer_id), 3);
 
-        inter = linear_.forward(param.input, mlp.intermediate, LlamaLinear::kGemm);
+        inter = linear_.forward(param.input, mlp.intermediate, LlamaLinear::kGemm, {}, nullptr, stream);
         sync_check_cuda_error();
         TM_DEBUG_TENSOR(inter, Concat("w3", layer_id), 3);
     }
@@ -75,7 +91,7 @@ void LlamaFfnLayer::forward(ForwardParam param)
 
     {  // w2(x)
         NvtxScope scope("w2");
-        linear_.forward(gating, mlp.output, LlamaLinear::kGemm, param.output);
+        linear_.forward(gating, mlp.output, LlamaLinear::kGemm, param.output, nullptr, stream);
         sync_check_cuda_error();
     }
 }

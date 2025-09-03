@@ -88,9 +88,8 @@ class ModelConfig:
     moe_norm_topk: int = False
     tie_word_embeddings: int = 0
     use_normhead: int = 0
-    qk_norm: bool = False
-    enable_expert_parallel: int = False
-    enable_attention_dp: int = False
+    mlp_ep_size: int = 1
+    quant_algo: str = 'none'
 
     def verify(self):
         invalid = {}
@@ -196,14 +195,6 @@ class TurbomindModelConfig:
     @property
     def expert_para_size(self):
         return self.model_config.ep
-
-    @property
-    def enable_expert_parallel(self):
-        return self.model_config.enable_expert_parallel
-
-    @property
-    def enable_attention_dp(self):
-        return self.model_config.enable_attention_dp
 
     @property
     def weight_type(self):

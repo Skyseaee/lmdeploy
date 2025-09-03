@@ -294,6 +294,7 @@ LlamaTritonModel::LlamaTritonModel(DataType                               dtype,
     model_param_.attn_bias  = model_reader["attn_bias"].as<int>(0);
     model_param_.qk_norm    = model_reader["qk_norm"].as<bool>();
     model_param_.group_size = model_reader["group_size"].as<int>(0);
+    model_param_.data_type  = dtype;
 
     attn_param_.softmax_scale = attention_reader["softmax_scale"].as<float>(0);
     // logn attn for qwen model
@@ -337,6 +338,8 @@ LlamaTritonModel::LlamaTritonModel(DataType                               dtype,
     }
 
     comm_size_ = engine_param_.attn_dp_size * engine_param_.attn_tp_size;
+    // NOTE(Alan): 整体并行组的Size N = Attention DP Size * Attention TP Size
+    //                            N = FFN TP Size * FFN EP Size
     FT_CHECK(engine_param_.mlp_tp_size == comm_size_);
     FT_CHECK(engine_param_.moe_tp_size * engine_param_.moe_ep_size == comm_size_);
 
@@ -350,6 +353,11 @@ LlamaTritonModel::LlamaTritonModel(DataType                               dtype,
                                                    [](const std::string& s) { return std::stoi(s); });
     lora_param_.scale_pattern = getLoraPattern<float>(lora_reader["lora_scale_pattern"].as<std::string>(""),
                                                       [](const std::string& s) { return std::stof(s); });
+
+    // TODO(Alan): 当前ep是如何设置的, 专家pruning功能是否正常
+    moe_param_.enable_expert_pruning = engine_reader["enable_expert_pruning"].as<bool>(false);
+    moe_param_.keep_expert_num       = engine_reader["keep_expert_num"].as<int>(24);
+    moe_param_.routed_scale      = model_reader["routed_scale"].as<float>(1.f);
 
     moe_param_.experts_per_token = model_reader["experts_per_token"].as<int>(0);
     moe_param_.inter_size        = model_reader["expert_inter_size"].as<int>(0);
@@ -372,6 +380,7 @@ LlamaTritonModel::LlamaTritonModel(DataType                               dtype,
     engines_.resize(engine_param_.devices.size());
 
     const std::string weight_type_str = model_reader["weight_type"].as<std::string>();
+    std::string       quant_algo      = model_reader["quant_algo"].as<std::string>();
     if (weight_type_str == "fp16" || weight_type_str == "float16") {
         model_param_.weight_type = kFloat16;
     }
@@ -383,12 +392,23 @@ LlamaTritonModel::LlamaTritonModel(DataType                               dtype,
     }
     else if (weight_type_str == "int8") {
         model_param_.weight_type = kUint8;
+        // w8a8_sq : default is
+        quant_algo              = quant_algo == "none" ? "w8a8_sq" : quant_algo;
+        model_param_.quant_mode = QuantMode::fromQuantAlgo(quant_algo);
     }
     else if (weight_type_str == "int4") {
         model_param_.weight_type = kUint4;
+        // w4a16_awq : default is
+        // w4a8_awq
+        quant_algo              = quant_algo == "none" ? "w4a16_awq" : quant_algo;
+        model_param_.quant_mode = QuantMode::fromQuantAlgo(quant_algo);
     }
     else if (weight_type_str == "fp8") {
         model_param_.weight_type = kFloat8_e4m3;
+        // fp8_static
+        // fp8_block_scales: default is
+        quant_algo              = quant_algo == "none" ? "fp8_block_scales" : quant_algo;
+        model_param_.quant_mode = QuantMode::fromQuantAlgo(quant_algo);
     }
     else {
         std::cout << "[ERROR] Unsupported weight type: '" << weight_type_str << "'\n";
@@ -465,9 +485,12 @@ Communicators LlamaTritonModel::createCommSplits(int rank)
 {
     Communicators comm{};
 
+    // NOTE(Alan): comm_size_为当前并行最小单元，outer_rank表示outter dp的rank
+    //             inner_rank表示当前attention tp/dp or mlp tp/ep的rank
     const int outer_rank = rank / comm_size_;
     const int inner_rank = rank % comm_size_;
 
+    // NOTE(Alana): 按照最小并行单位的comm_size_进行内部rank设置
     comm.h_comm = group_ids_[outer_rank]->CreateCommunicator(comm_size_, inner_rank);
 
     comm.h_tp_group = comm.h_comm->Split(inner_rank / engine_param_.attn_tp_size, 0);
@@ -489,7 +512,7 @@ void LlamaTritonModel::createEngine(int device_id, int rank)
 {
     CudaDeviceGuard dev_guard(engine_param_.devices[device_id]);
 
-    auto ctx = std::make_unique<Context>(engine_param_.devices[device_id]);
+    auto ctx = std::make_unique<Context>(engine_param_.devices[device_id], engine_param_, model_param_, moe_param_);
 
     core::ContextGuard guard{ctx->core_stream, ctx->allocator, Allocator{kCPUpinned}};
 
@@ -572,7 +595,9 @@ std::string LlamaTritonModel::toString()
        << "\nquant_policy: " << model_param_.quant_policy << "\ngroup_size: "
        << model_param_.group_size
        //    << "\nexpert_num: " << moe_param_.expert_num
-       << "\nexpert_per_token: " << moe_param_.experts_per_token << "\nmoe_method: " << moe_param_.method << std::endl;
+       << "\nexpert_per_token: " << moe_param_.experts_per_token << "\nmoe_method: " << moe_param_.method
+       << "\nweight_type:" << to_string(model_param_.weight_type)
+       << "\nquant_mode:" << model_param_.quant_mode.to_string() << std::endl;
 
     return ss.str();
 }

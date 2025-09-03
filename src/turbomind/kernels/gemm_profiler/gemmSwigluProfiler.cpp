@@ -17,22 +17,19 @@
 
 #include <numeric>
 
-#include "src/turbomind/kernels/fused_gated_gemm/gemm_configs.h"
+#include "cutlass_extensions/gemm_configs.h"
 #include "src/turbomind/kernels/gemm_profiler/gemmSwigluProfiler.h"
 
-using namespace tensorrt_llm::common;
 using namespace tensorrt_llm::kernels::cutlass_kernels;
 using tensorrt_llm::plugins::GemmSwigluPluginProfiler;
 
 size_t GemmSwigluPluginProfiler::getBytePerElement(turbomind::DataType type)
 {
     size_t bpe;
-    if (type == turbomind::DataType::TYPE_FP16 || type == turbomind::DataType::TYPE_BF16)
-    {
+    if (type == turbomind::DataType::kFloat16 || type == turbomind::DataType::kBfloat16) {
         bpe = 2;
     }
-    else if (type == turbomind::DataType::TYPE_INT8 || type == turbomind::DataType::TYPE_FP8_E4M3)
-    {
+    else if (type == turbomind::DataType::kInt8 || type == turbomind::DataType::kFloat8_e4m3) {
         bpe = 1;
     }
     else
@@ -42,7 +39,7 @@ size_t GemmSwigluPluginProfiler::getBytePerElement(turbomind::DataType type)
     return bpe;
 }
 
-void GemmSwigluPluginProfiler::setQuantMode(tensorrt_llm::common::QuantMode const& quantMode)
+void GemmSwigluPluginProfiler::setQuantMode(turbomind::QuantMode const& quantMode)
 {
     mQuantMode = quantMode;
 }

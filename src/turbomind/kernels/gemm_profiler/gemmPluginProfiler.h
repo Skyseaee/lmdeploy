@@ -28,7 +28,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "src/turbomind/utils/Tensor.h"
 #include "src/turbomind/kernels/gemm_profiler/utils.h"
 
 namespace tensorrt_llm::plugins
@@ -81,10 +80,7 @@ public:
     {
     }
 
-    GemmIdCore()
-        : n(-1)
-        , k(-1)
-        , dtype(turbomind::DataType::TYPE_FP32) // dtype does not matter here
+    GemmIdCore(): n(-1), k(-1), dtype(turbomind::DataType::kFloat32)  // dtype does not matter here
     {
     }
 
@@ -223,7 +219,7 @@ public:
     size_t getSerializationSize(GemmIdType const& gemmId) const;
 
     void profileTactics(
-        RunnerPtr const& runner, turbomind::DataType const& type, GemmDims const& dims, GemmIdType const& gemmId);
+        RunnerPtr const& runner, turbomind::DataType const& type, GemmDims const& dims, GemmIdType const& gemmId, bool hasWeightOnlyCudaKernel = false);
 
     void setSelectionTactics(MNKProfileMapPtr const& map)
     {

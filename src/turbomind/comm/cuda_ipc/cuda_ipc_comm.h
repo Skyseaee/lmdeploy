@@ -66,7 +66,12 @@ public:
                                       int          token_num,
                                       DataType     dtype,
                                       int          group,
-                                      cudaStream_t stream) override;
+                                      cudaStream_t stream,
+                                      void*        hidden_states_fp8 = nullptr,
+                                      void*        moe_fp8_buf = nullptr,
+                                      void*        moe_fp16_buf = nullptr,
+                                      float        shared_expert_scale = 1.0,
+                                      float        moe_expert_scale = 1.0) override;
 
     void AllreduceResidualBiasRMSnormEx(void*        hidden,
                                         void*        residual,

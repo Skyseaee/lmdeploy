@@ -31,7 +31,7 @@ set_property(TARGET quantization_kernels PROPERTY POSITION_INDEPENDENT_CODE  ON)
 set_property(TARGET quantization_kernels PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS  ON)
 
 add_executable(test_quantization test_quantization.cc gemm/test/test_utils.cu)
-target_link_libraries(test_quantization PRIVATE quantization_kernels core)
+target_link_libraries(test_quantization PRIVATE quantization_kernels core rng_utils)
 
 add_library(logprob_kernels STATIC logprob_kernels.cu)
 set_property(TARGET logprob_kernels PROPERTY POSITION_INDEPENDENT_CODE  ON)
@@ -61,9 +61,22 @@ add_library(sampling_penalty_kernels STATIC sampling_penalty_kernels.cu)
 set_property(TARGET sampling_penalty_kernels PROPERTY POSITION_INDEPENDENT_CODE  ON)
 set_property(TARGET sampling_penalty_kernels PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS  ON)
 
+add_library(custom_ar_kernels STATIC custom_ar_kernels.cu)
+set_property(TARGET custom_ar_kernels PROPERTY POSITION_INDEPENDENT_CODE  ON)
+set_property(TARGET custom_ar_kernels PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS  ON)
+
 add_library(sampling_kernels STATIC sampling_kernels.cu)
 set_property(TARGET sampling_kernels PROPERTY POSITION_INDEPENDENT_CODE  ON)
 set_property(TARGET sampling_kernels PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS  ON)
+
+add_library(pre_quantscale_kernel STATIC pre_quantscale_kernel.cu)
+set_property(TARGET pre_quantscale_kernel PROPERTY POSITION_INDEPENDENT_CODE  ON)
+set_property(TARGET pre_quantscale_kernel PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS  ON)
+
+add_library(moe_load_balance_kernels STATIC moe_load_balance_kernels.cu)
+set_property(TARGET moe_load_balance_kernels PROPERTY POSITION_INDEPENDENT_CODE  ON)
+set_property(TARGET moe_load_balance_kernels PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS  ON)
+
 
 # if (BUILD_TEST)
 #     add_subdirectory(flash_attention)
@@ -72,3 +85,20 @@ set_property(TARGET sampling_kernels PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS  ON)
 add_subdirectory(attention)
 add_subdirectory(gemm)
 add_subdirectory(norm)
+
+if(CUTLASS_FP8)
+    add_subdirectory(cutlass_w8a8)
+endif()
+
+if(FUSED_GATED_GEMM OR FUSED_MOE_FFN_GEMM OR CUTLASS_FP8)
+    add_subdirectory(gemm_profiler)
+endif()
+
+if(FUSED_GATED_GEMM)
+    add_subdirectory(fused_gated_gemm)
+endif()
+
+if(FUSED_MOE_FFN_GEMM)
+    add_subdirectory(lora)
+    add_subdirectory(cutlass_kernels)
+endif()

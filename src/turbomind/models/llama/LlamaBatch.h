@@ -124,6 +124,8 @@ public:
 
     void Warmup();
 
+    void profile_run();
+
 private:
     void FindCanceledIndices(std::vector<int>& indices);
 
@@ -221,6 +223,11 @@ private:
     // context decoding temp buffers
     Tensor symm_hidden_states_buf_;
     Tensor symm_logits_buf_;
+
+     // moe temp buffers
+    Tensor symm_moe_fp8_buf_;        // fp8 input data quant by moe experts input_scale
+    Tensor symm_moe_fp16_buf_;       // fp16/bfloat16 input data for gate
+    Tensor symm_moe_gate_fp32_buf_;  // fp32 gate result
 
     Tensor decoder_output_buf_;
 

@@ -21,6 +21,7 @@
 #pragma once
 
 #include "src/turbomind/core/core.h"
+#include "src/turbomind/core/quant_mode.h"
 
 #include "src/turbomind/models/llama/LlamaDenseWeight.h"
 #include "src/turbomind/models/llama/llama_params.h"
@@ -52,6 +53,11 @@ public:
     std::unique_ptr<LlamaFfnWeight> ffn_weights;
     std::unique_ptr<MoeFfnWeight>   moe_weights;
 
+    bool isPerTensorStaticFP8Weight()
+    {
+        return (weight_type_ == DataType::kFloat8_e4m3) && quant_mode_.isFP8Static();
+    }
+
 private:
     int head_num_;
     int kv_head_num_;
@@ -72,6 +78,20 @@ private:
     int  moe_tp_rank_;
     int  moe_ep_size_;
     int  moe_ep_rank_;
+
+private:
+
+#ifdef ENABLE_FP8
+    void process_fp8_weight();
+
+#ifdef FUSED_MOE_FFN_GEMM
+    bool cutlass_fused_kernel_;
+    void process_fp8_moe_weight();
+#endif
+
+#endif
+
+    QuantMode quant_mode_;
 };
 
 }  // namespace turbomind

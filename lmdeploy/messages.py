@@ -227,10 +227,8 @@ class TurbomindEngineConfig:
         devices(List[int]): the used devices
         empty_init (bool): Whether to load the model weights, you should set
             it to True if you want to update weights after create the pipeline
-        enable_expert_parallel (bool): enable expert parallelism for moe layer when tp > 1,
-            default to False
-        enable_attention_dp (bool): enable data parallelism for attention layer when tp > 1,
-            default to False
+        mlp_ep_size (int): the number of GPU cards used in expert parallelism,
+            default to 1
     """
 
     dtype: str = 'auto'
@@ -265,8 +263,7 @@ class TurbomindEngineConfig:
     devices: Optional[List[int]] = None
     empty_init: bool = False
     communicator: str = 'nccl'
-    enable_expert_parallel: bool = False
-    enable_attention_dp: bool = False
+    mlp_ep_size: int = 1
 
     def __post_init__(self):
         """Check input validation."""
@@ -279,16 +276,6 @@ class TurbomindEngineConfig:
         assert self.max_prefill_token_num >= 0, \
             'invalid max_prefill_token_num'
         assert self.num_tokens_per_iter >= 0, 'invalid num_tokens_per_iter'
-        
-        def is_valid_tp(tp):
-            return tp > 1 and (tp & (tp - 1)) == 0
-
-        assert not self.enable_expert_parallel or is_valid_tp(self.tp), \
-            f'enable_expert_parallel={self.enable_expert_parallel}, but tp={self.tp} is invalid (must be power of 2 and >1)'
-            
-        assert not self.enable_attention_dp or is_valid_tp(self.tp), \
-            f'enable_attention_dp={self.enable_attention_dp}, but tp={self.tp} is invalid (must be power of 2 and >1)'
-        
         assert self.ep >= 1, 'ep must be a integer > 0'
         assert self.ep <= self.tp, f'ep {self.ep} must be smaller than tp {self.tp}'
 

@@ -28,18 +28,16 @@ cublasMMWrapper::cublasMMWrapper(cublasHandle_t   cublas_handle,
                                  cudaStream_t     stream,
                                  cublasAlgoMap*   cublas_algo_map,
                                  std::mutex*      mu,
-                                 IAllocator*      allocator):
+                                 void*            cublas_workspace):
     cublas_handle_(cublas_handle),
     cublaslt_handle_(cublaslt_handle),
     stream_(stream),
     cublas_algo_map_(cublas_algo_map),
     mu_(mu),
-    allocator_(allocator)
+    cublas_workspace_(cublas_workspace)
 {
     TM_LOG_DEBUG(__PRETTY_FUNCTION__);
-    if (allocator_ != nullptr) {
-        cublas_workspace_ = allocator_->reMalloc(cublas_workspace_, CUBLAS_WORKSPACE_SIZE, false);
-    }
+    cublas_workspace_ = cublas_workspace;
 }
 
 #ifdef SPARSITY_ENABLED
@@ -49,19 +47,16 @@ cublasMMWrapper::cublasMMWrapper(cublasHandle_t     cublas_handle,
                                  cudaStream_t       stream,
                                  cublasAlgoMap*     cublas_algo_map,
                                  std::mutex*        mu,
-                                 IAllocator*        allocator):
+                                 void*              cublas_workspace):
     cublas_handle_(cublas_handle),
     cublaslt_handle_(cublaslt_handle),
     cusparselt_handle_(cusparselt_handle),
     stream_(stream),
     cublas_algo_map_(cublas_algo_map),
     mu_(mu),
-    allocator_(allocator)
+    cublas_workspace_(cublas_workspace)
 {
     TM_LOG_DEBUG(__PRETTY_FUNCTION__);
-    if (allocator_ != nullptr) {
-        cublas_workspace_ = allocator_->reMalloc(cublas_workspace_, CUBLAS_WORKSPACE_SIZE, false);
-    }
 }
 #endif
 
@@ -69,10 +64,6 @@ cublasMMWrapper::~cublasMMWrapper()
 {
     TM_LOG_DEBUG(__PRETTY_FUNCTION__);
     mu_ = nullptr;
-    if (allocator_ != nullptr) {
-        allocator_->free((void**)(&cublas_workspace_));
-        allocator_ = nullptr;
-    }
 }
 
 cublasMMWrapper::cublasMMWrapper(const cublasMMWrapper& wrapper):
@@ -84,12 +75,9 @@ cublasMMWrapper::cublasMMWrapper(const cublasMMWrapper& wrapper):
     stream_(wrapper.stream_),
     cublas_algo_map_(wrapper.cublas_algo_map_),
     mu_(wrapper.mu_),
-    allocator_(wrapper.allocator_)
+    cublas_workspace_(wrapper.cublas_workspace_)
 {
     TM_LOG_DEBUG(__PRETTY_FUNCTION__);
-    if (allocator_ != nullptr) {
-        cublas_workspace_ = allocator_->reMalloc(cublas_workspace_, CUBLAS_WORKSPACE_SIZE, false);
-    }
 }
 
 void cublasMMWrapper::Gemm(cublasOperation_t transa,

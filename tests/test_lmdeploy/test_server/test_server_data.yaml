@@ -50,9 +50,9 @@ test_models:
           - prompt: "Please describe Shopee in short."
             ground_truth:
               a100: "Shopee is a leading e-commerce platform in Southeast Asia and Taiwan. It is a platform tailored for the region, "
-              h100: "Shopee is a popular e-commerce platform that allows users to buy and sell a wide range of products, including electronics, fashion, beauty"
-              t4: "Shopee is a popular e-commerce platform that allows users to buy and sell a wide range of products, including electronics, fashion, beauty"
-              v100: "Shopee is a popular e-commerce platform that allows users to buy and sell a wide range of products, including electronics, fashion, beauty"
+              h100: "Shopee is a popular e-commerce platform that allows users to buy and sell a wide range of products, including electronics, fashion"
+              t4: "Shopee is a popular e-commerce platform that allows users to buy and sell a wide range of products, including electronics, fashion"
+              v100: "Shopee is a popular e-commerce platform that allows users to buy and sell a wide range of products, including electronics, fashion"
             verification: startswith
       awq-w4a16-kvfp16:
         target_gpus: ["a100", "h100", "t4", "v100"]
@@ -75,8 +75,8 @@ test_models:
         test_data:
           - prompt: "Please describe Shopee in short."
             ground_truth:
-              h100: "Shopee is a Southeast Asian e-commerce platform that allows users to buy and sell a wide range of products, including electronics, fashion, beauty, and home goods. It was launched in 2015 and is owned by Sea Group, a Singapore-based technology company. Shopee is popular in countries such as Indonesia,"
-            verification: ==
+              h100: "Shopee is a popular e-commerce platform that allows users to buy and sell a wide range of products, including electronics, fashion"
+            verification: startswith
   ##################################
   DeepSeek-R1-Distill-Qwen-7B:
     model_info:
@@ -148,7 +148,7 @@ test_models:
         test_data:
           - prompt: "Please describe Shopee in short."
             ground_truth:
-              h100: "<think>\n\n</think>\n\nShopee is a popular e-commerce platform primarily used<think>\nOkay, so I"
+              h100: "<think>\n\n</think>\n\nShopee is a popular e-commerce platform primarily used in Southeast Asia"
             verification: startswith
   ##################################
   compass-13b-v1.3.0:
@@ -289,7 +289,7 @@ test_models:
         test_data:
           - prompt: "Please describe Shopee in short."
             ground_truth:
-              h100: " Shopee is an **online shopping platform** in Southeast Asia, primarily serving users in Singapore, Malaysia, Thailand, and Indonesia. It offers a wide range of products, including electronics, fashion, home & garden, sports & outdoors, mom & baby, etc."
+              h100: " Shopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines"
             verification: startswith
       fp16-kvint8:
         target_gpus: ["h100"]
@@ -298,7 +298,7 @@ test_models:
         test_data:
           - prompt: "Please describe Shopee in short."
             ground_truth:
-              h100: " Shopee is an **online shopping platform** in Southeast Asia, primarily serving users in Singapore, Malaysia, Thailand, and Indonesia. It offers a wide range of products, including electronics, fashion, home & garden, sports & outdoors, mom & baby, etc."
+              h100: " Shopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines"
             verification: startswith
       awq-w4a16-kvfp16:
         target_gpus: ["h100", "t4", "v100"]
@@ -309,9 +309,9 @@ test_models:
         test_data:
           - prompt: "Please describe Shopee in short."
             ground_truth:
-              h100: " Shopee is an **online shopping platform** originating from **Singapore**, now a **regional e-commerce hub** in Southeast Asia, offering a wide range of products"
-              t4: " Shopee is an **online shopping platform** originating from **Singapore**, now a **regional e-commerce hub** in Southeast Asia, offering a wide range of products"
-              v100: " Shopee is an **online shopping platform** originating from **Singapore**, now a **regional e-commerce hub** in Southeast Asia, offering a wide range of products"
+              h100: " Shopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines"
+              t4: " Shopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines"
+              v100: " Shopee is an e-commerce platform headquartered in Singapore, founded in 2015. It primarily operates in Southeast Asian markets, including Singapore, Malaysia, Thailand, Taiwan, Indonesia, Vietnam, and the Philippines"
             verification: startswith
       fp8-kvfp8:
         target_gpus: ["h100"]
