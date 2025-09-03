@@ -141,6 +141,13 @@ class ChatCompletionRequest(BaseModel):
     enable_thinking: Optional[bool] = None
     do_sample: Optional[bool] = True
 
+    # compatible with v0.6.3 (enable_thinking <-> think_mode)
+    think_mode: Optional[Union[bool, List[bool]]] = Field(default=None, examples=[None])
+
+    # fill in the middle (code task)
+    prefix: Optional[str] = None
+    suffix: Optional[str] = None
+
 
 class FunctionCall(BaseModel):
     """Function response."""

@@ -182,12 +182,15 @@ class MoeFfn(Ffn):
         self.expert_num = model.model_config.expert_num
         self.inter_size = model.model_config.expert_inter_size
         self.shared_gate = model.model_config.moe_shared_gate
+        self.tp = model.moe_tp_size
+        self.ep = model.moe_ep_size
 
     def apply(self, i: int, r: BaseReader):
         if self.expert_num[i] == 0:
             return
+
         for p in get_params(r.moe_ffn_expert()):
-            for e in range(self.expert_num[i]):
+            for e in range(self.expert_num[i] * self.ep):
                 fmt = self._moe_ffn_expert.replace('E', str(e))
 
                 if self.model_format == 'fp8':

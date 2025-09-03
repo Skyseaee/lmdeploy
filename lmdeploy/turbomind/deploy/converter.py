@@ -246,6 +246,9 @@ def get_tm_model(model_path,
 
     tm_cfg.model_config.attn_tp_size = engine_config.attn_tp_size
     tm_cfg.model_config.mlp_tp_size = engine_config.mlp_tp_size
+    tm_cfg.model_config.moe_tp_size = engine_config.moe_tp_size
+    tm_cfg.model_config.moe_ep_size = engine_config.moe_ep_size
+
 
     output_model = OUTPUT_MODELS.get(output_model_name)(input_model=input_model,
                                                         cfg=tm_cfg,

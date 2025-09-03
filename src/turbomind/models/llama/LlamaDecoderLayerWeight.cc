@@ -68,7 +68,11 @@ LlamaDecoderLayerWeight::LlamaDecoderLayerWeight(DataType           data_type,
     attn_tp_size_(engine.attn_tp_size),
     attn_tp_rank_(engine.attn_tp_rank),
     mlp_tp_size_(engine.mlp_tp_size),
-    mlp_tp_rank_(engine.mlp_tp_rank)
+    mlp_tp_rank_(engine.mlp_tp_rank),
+    moe_tp_size_(engine.moe_tp_size),
+    moe_tp_rank_(engine.moe_tp_rank),
+    moe_ep_size_(engine.moe_ep_size),
+    moe_ep_rank_(engine.moe_ep_rank)
 {
     self_attn_weights.reset(new LlamaAttentionWeight{hidden_units_,
                                                      size_per_head_,
@@ -105,8 +109,10 @@ LlamaDecoderLayerWeight::LlamaDecoderLayerWeight(DataType           data_type,
                                            data_type_,
                                            weight_type_,
                                            model.group_size,
-                                           mlp_tp_size_,
-                                           mlp_tp_rank_,
+                                           moe_tp_size_,
+                                           moe_tp_rank_,
+                                           moe_ep_size_,
+                                           moe_ep_rank_,
                                            is_fuse_silu_act()});
         register_module("moe_ffn", *moe_weights);
     }

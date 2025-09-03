@@ -324,6 +324,10 @@ LlamaTritonModel::LlamaTritonModel(DataType                               dtype,
     engine_param_.attn_tp_rank  = 0;
     engine_param_.mlp_tp_size   = engine_reader["mlp_tp_size"].as<int>();
     engine_param_.mlp_tp_rank   = 0;
+    engine_param_.moe_tp_size   = engine_reader["moe_tp_size"].as<int>();
+    engine_param_.moe_tp_rank   = 0;
+    engine_param_.moe_ep_size   = engine_reader["moe_ep_size"].as<int>();
+    engine_param_.moe_ep_rank   = 0;
 
     engine_param_.devices = engine_reader["devices"].as<std::vector<int>>();
 
@@ -334,6 +338,7 @@ LlamaTritonModel::LlamaTritonModel(DataType                               dtype,
 
     comm_size_ = engine_param_.attn_dp_size * engine_param_.attn_tp_size;
     FT_CHECK(engine_param_.mlp_tp_size == comm_size_);
+    FT_CHECK(engine_param_.moe_tp_size * engine_param_.moe_ep_size == comm_size_);
 
     communicator_ = engine_reader["communicator"].as<std::string>();
 
@@ -413,6 +418,8 @@ LlamaTritonModel::LlamaTritonModel(DataType                               dtype,
         e.attn_tp_rank  = i % comm_size_ % e.attn_tp_size;
         e.attn_dp_rank  = i % comm_size_ / e.attn_tp_size;
         e.mlp_tp_rank   = i % comm_size_;
+        e.moe_tp_rank   = i % comm_size_ % e.moe_tp_size;
+        e.moe_ep_rank   = i % comm_size_ / e.moe_tp_size;
     }
 
     TM_LOG_INFO("%s", toString().c_str());

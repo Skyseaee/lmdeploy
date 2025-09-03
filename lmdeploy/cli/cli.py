@@ -31,6 +31,7 @@ class CLI(object):
         parser.add_argument('model_path', type=str, help='The directory path of the model')
         ArgumentHelper.model_format(parser)
         ArgumentHelper.tp(parser)
+        ArgumentHelper.ep(parser)
         ArgumentHelper.enable_expert_parallel(parser)
         ArgumentHelper.enable_attention_dp(parser)
         # other args
@@ -104,6 +105,7 @@ class CLI(object):
         # common engine args
         dtype_act = ArgumentHelper.dtype(pt_group)
         tp_act = ArgumentHelper.tp(pt_group)
+        ep_act = ArgumentHelper.ep(pt_group)
         enalbe_ep_act = ArgumentHelper.enable_expert_parallel(pt_group)
         enable_attention_dp_act = ArgumentHelper.enable_attention_dp(pt_group)
         session_len_act = ArgumentHelper.session_len(pt_group)
@@ -116,6 +118,7 @@ class CLI(object):
         # common engine args
         tb_group._group_actions.append(dtype_act)
         tb_group._group_actions.append(tp_act)
+        tb_group._group_actions.append(ep_act)
         tb_group._group_actions.append(enalbe_ep_act)
         tb_group._group_actions.append(enable_attention_dp_act)
         tb_group._group_actions.append(session_len_act)

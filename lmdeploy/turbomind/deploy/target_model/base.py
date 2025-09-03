@@ -53,12 +53,19 @@ class BaseOutputModel(ABC):
         self.lora_config = cfg.lora_config
         self.attn_tp_size = self.model_config.attn_tp_size
         self.mlp_tp_size = self.model_config.mlp_tp_size
+        self.moe_tp_size = self.model_config.moe_tp_size
+        self.moe_ep_size = self.model_config.moe_ep_size
         self.out_dir = out_dir
         self.to_file = True if out_dir else False
         self.tm_params = defaultdict(list)
 
         # get `model_info` at first, which will be updated to `self.model_config` and `self.attention_config`
         self.input_model_info = self.input_model.model_info()
+        if self.input_model_info.get('expert_num', None) and\
+            type(self.input_model_info['expert_num']) is int:
+            assert self.input_model_info['expert_num'] % self.moe_ep_size == 0
+            self.input_model_info['expert_num'] = self.input_model_info['expert_num'] // self.moe_ep_size
+
         self.input_model_info = self.single_to_list(self.input_model_info, keys=['inter_size', 'expert_num'])
         self.permute_qk = self.input_model_info.get('permute_qk', True)
         self.update_model_config()
@@ -66,7 +73,7 @@ class BaseOutputModel(ABC):
             self.model_config.inter_size[i] = _pad_inter_size(v, self.model_config.group_size, self.mlp_tp_size)
         if self.model_config.expert_num:
             self.model_config.expert_inter_size = _pad_inter_size(self.model_config.expert_inter_size,
-                                                                  self.model_config.group_size, self.mlp_tp_size)
+                                                                  self.model_config.group_size, self.moe_tp_size)
 
         # head_num is divisble by tp but kv_head_num is not
         # and tp is divisble by kv_head_num

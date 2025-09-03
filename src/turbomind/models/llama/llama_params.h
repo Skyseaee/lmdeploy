@@ -96,6 +96,10 @@ struct EngineParam {
     int attn_tp_rank;
     int mlp_tp_size;
     int mlp_tp_rank;
+    int moe_tp_size;
+    int moe_tp_rank;
+    int moe_ep_size;
+    int moe_ep_rank;
 
     std::vector<int> devices;
 };

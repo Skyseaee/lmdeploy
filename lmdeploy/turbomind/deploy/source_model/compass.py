@@ -72,6 +72,7 @@ class CompassMoeReader(LlamaReader):
             f'model.layers.{i}.mlp.shared_expert_gate.weight')
 
 
+@INPUT_MODELS.register_module(name='compass-smoe')
 @INPUT_MODELS.register_module(name='compass-moe')
 class CompassMoeModel(LlamaModel):
 
@@ -90,6 +91,7 @@ class CompassMoeModel(LlamaModel):
             # compass-smoe
             info['inter_size'] = cfg['shared_expert_intermediate_size']
         info['moe_shared_gate'] = False
-        info['norm_topk_prob'] = cfg['norm_topk_prob']
+        # hardcoding norm_topk_prob because it's compass-moe/smoe's default behaviour
+        info['norm_topk_prob'] = True
         info['attn_bias'] = 0
         return info

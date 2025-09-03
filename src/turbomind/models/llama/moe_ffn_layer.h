@@ -32,6 +32,8 @@ private:
     void dump_logits(int token_num, int layer_id, int expert_num);
 
     const int      inter_size_;
+    const int      moe_ep_size_;
+    const int      moe_ep_rank_;
     const int      hidden_dim_;
     const MoeParam param_;
 
@@ -55,6 +57,8 @@ private:
     Tensor         temp_;
     Tensor_<float> shared_scales_;
     ///////////////////////////////////////////////////////
+
+    int2 expert_range_{};
 };
 
 }  // namespace turbomind

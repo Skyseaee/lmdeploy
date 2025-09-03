@@ -76,6 +76,8 @@ def complete_parallel_config(cfg: TurbomindEngineConfig):
         cfg.attn_tp_size = cfg.attn_tp_size or 1
         cfg.mlp_dp_size = cfg.mlp_dp_size or 1
         cfg.mlp_tp_size = cfg.mlp_tp_size or 1
+        cfg.moe_ep_size = cfg.moe_ep_size or 1
+        cfg.moe_tp_size = cfg.moe_tp_size or 1
         cfg.outer_dp_size = cfg.outer_dp_size or 1
         gcd = math.gcd(cfg.mlp_dp_size, cfg.attn_dp_size)
         cfg.outer_dp_size *= gcd
@@ -103,8 +105,11 @@ def update_parallel_config(cfg: TurbomindEngineConfig):
         cfg.attn_tp_size = inner_tp_size
         cfg.mlp_dp_size = 1
         cfg.mlp_tp_size = mlp_tp_size * inner_tp_size
+        cfg.moe_tp_size = cfg.mlp_tp_size // cfg.ep
+        cfg.moe_ep_size = cfg.ep
     assert cfg.attn_dp_size * cfg.attn_tp_size == cfg.mlp_dp_size * cfg.mlp_tp_size
     assert cfg.attn_dp_size * cfg.attn_tp_size * cfg.outer_dp_size == cfg.device_num
+    assert cfg.moe_ep_size * cfg.moe_tp_size == cfg.mlp_tp_size
     cfg.devices = cfg.devices or list(range(cfg.device_num))
 
 
@@ -324,6 +329,7 @@ class TurboMind:
 
         self.gpu_count = cfg.tensor_para_size
         engine_config.tp = cfg.tensor_para_size
+        engine_config.ep = cfg.expert_para_size
         engine_config.enable_expert_parallel = cfg.enable_expert_parallel
         engine_config.enable_attention_dp = cfg.enable_attention_dp
 

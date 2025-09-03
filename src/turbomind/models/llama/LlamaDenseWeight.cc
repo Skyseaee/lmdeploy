@@ -459,6 +459,8 @@ MoeFfnWeight::MoeFfnWeight(int             layer_id,
                            int             group_size,
                            int             tp_size,
                            int             tp_rank,
+                           int             ep_size,
+                           int             ep_rank,
                            bool            fuse_silu_act)
 {
     if ((int)param.expert_num.size() <= layer_id) {
@@ -471,14 +473,14 @@ MoeFfnWeight::MoeFfnWeight(int             layer_id,
         return;
     }
 
-    gate.emplace(hidden_dim, expert_num, data_type, false, data_type, 1);
+    gate.emplace(hidden_dim, ep_size * expert_num, data_type, false, data_type, 1);
     register_module("gate", gate);
 
     method        = param.method;
     fuse_silu_act = fuse_silu_act && method == MoeParam::kFused && weight_type != kFloat8_e4m3;
 
     experts.reserve(expert_num);
-    for (int i = 0; i < expert_num; ++i) {
+    for (int i = expert_num * ep_rank; i < expert_num * (ep_rank+1); ++i) {
         experts.emplace_back(new LlamaFfnWeight{
             hidden_dim, param.inter_size, tp_size, tp_rank, data_type, weight_type, group_size, fuse_silu_act});
         register_module("experts", *experts.back(), i);
