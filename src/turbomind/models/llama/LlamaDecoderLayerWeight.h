@@ -68,6 +68,10 @@ private:
     int  attn_tp_rank_;
     int  mlp_tp_size_;
     int  mlp_tp_rank_;
+    int  moe_tp_size_;
+    int  moe_tp_rank_;
+    int  moe_ep_size_;
+    int  moe_ep_rank_;
 };
 
 }  // namespace turbomind

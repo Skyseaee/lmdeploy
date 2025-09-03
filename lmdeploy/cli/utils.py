@@ -190,7 +190,8 @@ class ArgumentHelper:
         return parser.add_argument('--ep',
                                    type=int,
                                    default=1,
-                                   help='expert parallelism. dp is required when pytorch engine is used.')
+                                   help='expert parallelism. dp is required when pytorch engine is used. tp is required turbomind engine is used,\
+                                             and tp size inside moe experts will be tp // ep')
 
     @staticmethod
     def dp_rank(parser):

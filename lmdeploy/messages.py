@@ -237,11 +237,14 @@ class TurbomindEngineConfig:
     model_format: Optional[str] = None
     tp: int = 1
     dp: int = 1
+    ep: int = 1
     device_num: int = None
     attn_tp_size: int = None
     attn_dp_size: int = None
     mlp_tp_size: int = None
     mlp_dp_size: int = None
+    moe_ep_size: int = None
+    moe_tp_size: int = None
     outer_dp_size: int = None
     session_len: Optional[int] = None
     max_batch_size: int = None
@@ -285,6 +288,9 @@ class TurbomindEngineConfig:
             
         assert not self.enable_attention_dp or is_valid_tp(self.tp), \
             f'enable_attention_dp={self.enable_attention_dp}, but tp={self.tp} is invalid (must be power of 2 and >1)'
+        
+        assert self.ep >= 1, 'ep must be a integer > 0'
+        assert self.ep <= self.tp, f'ep {self.ep} must be smaller than tp {self.tp}'
 
 @dataclass
 class PytorchEngineConfig:

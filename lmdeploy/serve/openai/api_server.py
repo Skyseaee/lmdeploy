@@ -431,6 +431,20 @@ async def chat_completions_v1(raw_request: Request = None):
     # request.enable_thinking has higer priority than chat_template_kwargs
     if hasattr(request, 'enable_thinking') and request.enable_thinking is not None:
         enable_thinking = request.enable_thinking
+    if hasattr(request, 'think_mode') and request.think_mode is not None:
+        # compatible with v0.6.3 (enable_thinking <-> think_mode)
+        if type(request.think_mode) is list:
+            enable_thinking = request.think_mode[-1] or enable_thinking
+        else:
+            enable_thinking = request.think_mode or enable_thinking
+
+    if "compass-smoe" in request.model or "compass-v2" in request.model or\
+        "compass-max" in request.model or "compass-moe" in request.model:
+         # not support for think_mode and tools call simultaneously for compass model
+        if request.tools and enable_thinking:
+            enable_thinking = False
+
+
     result_generator = VariableInterface.async_engine.generate(
         request.messages,
         request.session_id,

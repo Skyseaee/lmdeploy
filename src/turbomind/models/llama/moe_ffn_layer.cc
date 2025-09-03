@@ -16,7 +16,9 @@
 namespace turbomind {
 
 MoeFfnLayer::MoeFfnLayer(const ModelParam& model, const MoeParam& param, const EngineParam& engine, const Context& ctx):
-    inter_size_(param.inter_size / engine.mlp_tp_size),
+    inter_size_(param.inter_size / engine.moe_tp_size),
+    moe_ep_size_(engine.moe_ep_size),
+    moe_ep_rank_(engine.moe_ep_rank),
     hidden_dim_(model.hidden_units),
     param_(param),
     stream_(ctx.stream),
@@ -24,7 +26,7 @@ MoeFfnLayer::MoeFfnLayer(const ModelParam& model, const MoeParam& param, const E
 {
     TM_CHECK(!param.expert_num.empty());
 
-    const int max_expert_num = *std::max_element(param.expert_num.begin(), param.expert_num.end());
+    const int max_expert_num = engine.moe_ep_size * (int)*std::max_element(param.expert_num.begin(), param.expert_num.end());
 
     if (param_.method == MoeParam::kFused) {
         context_ =
@@ -63,7 +65,9 @@ void MoeFfnLayer::Forward(ForwardParam& p)
     const auto& moe    = *p.weights;
 
     const size_t padded     = (tokens + kMoeGateVecSize - 1) / kMoeGateVecSize * kMoeGateVecSize;
-    const int    expert_num = moe.experts.size();
+    const int    local_expert_num = moe.experts.size();
+    const int    expert_num       = local_expert_num * moe_ep_size_;
+    expert_range_ = {moe_ep_rank_ * local_expert_num, (moe_ep_rank_+1) * local_expert_num};
 
     FT_CHECK(expert_num);
 
@@ -97,6 +101,7 @@ void MoeFfnLayer::Forward(ForwardParam& p)
                      softmax,
                      param_.norm_topk_prob,
                      param_.routed_scale,
+                     expert_range_,
                      stream_);
     sync_check_cuda_error();
 
@@ -115,7 +120,20 @@ void MoeFfnLayer::Forward(ForwardParam& p)
             offsets_.data(), h_offsets_.data(), sizeof(int) * (expert_num + 1), cudaMemcpyDefault, stream_));
     }
 
+    if (moe_ep_size_ > 1) {
+        invokeMoveOffsets(offsets_.data(), expert_num, expert_range_, stream_);
+    }
+
     temp_ = Tensor{{param_.experts_per_token * tokens, hidden_dim_}, p.input.dtype(), p.input.device()};
+    if (moe_ep_size_ > 1) {
+        // initializing moe output with zeros, preventing nan in unused memory
+        // only observed when ep > 1
+        auto set_to_zeros = [&](auto t) {
+            using T = decltype(t);
+            check_cuda_error(cudaMemsetAsync(temp_.data<T>(), 0, sizeof(T) * temp_.size(), stream_));
+        };
+        TM_DISPATCH_DTYPES(temp_.dtype(), set_to_zeros, float, half_t, bfloat16_t);
+    }
 
     if (param_.method == MoeParam::kNaive) {
 
@@ -123,13 +141,13 @@ void MoeFfnLayer::Forward(ForwardParam& p)
         sync_check_cuda_error();
 
         check_cuda_error(cudaMemcpyAsync(
-            h_offsets_.data(), offsets_.data(), sizeof(int) * (expert_num + 1), cudaMemcpyDefault, stream_));
+            h_offsets_.data(), offsets_.data(), sizeof(int) * (local_expert_num + 1), cudaMemcpyDefault, stream_));
 
         check_cuda_error(cudaStreamSynchronize(stream_));
 
-        TM_CHECK_EQ(h_offsets_[expert_num], tokens * param_.experts_per_token);
+        TM_CHECK_EQ(h_offsets_[local_expert_num], tokens * param_.experts_per_token);
 
-        for (int i = 0; i < expert_num; ++i) {
+        for (int i = 0; i < local_expert_num; ++i) {
             if (int count = h_offsets_[i + 1] - h_offsets_[i]) {
                 auto io = temp_.slice({h_offsets_[i], 0}, {count, -1});
                 expert_ffn_->forward({io, io, moe.experts.at(i).get(), p.layer_id});
@@ -137,7 +155,7 @@ void MoeFfnLayer::Forward(ForwardParam& p)
         }
     }
     else {
-        context_->update(expert_num, param_.experts_per_token, offsets_.data());
+        context_->update(local_expert_num, param_.experts_per_token, offsets_.data());
 
         auto& block = moe.block;
 

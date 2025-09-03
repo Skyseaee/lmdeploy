@@ -236,7 +236,9 @@ class BaseChatTemplate(BaseModel):
         ret += f'{self.assistant}'
         return ret
 
-@MODELS.register_module(name=['compass-max', 'compass-smoe'])
+
+@MODELS.register_module(name=['compass-smoe'])
+@MODELS.register_module(name=['compass-v2'])
 class CompassSMoeLLM(BaseModel):
     """Chat template and generation parameters of CompassLLM models."""
 
@@ -245,7 +247,7 @@ class CompassSMoeLLM(BaseModel):
                  top_k=5,
                  top_p=0.85,
                  repetition_penalty=1.15,
-                 stop_words=['</s>'],
+                 stop_words=['</s>', '</compass_eot>'],
                  session_len=4096,
                  **kwargs):
         super().__init__(temperature=temperature,
@@ -255,8 +257,36 @@ class CompassSMoeLLM(BaseModel):
                          stop_words=stop_words,
                          **kwargs)
 
-        # self.system = "You are a helpful, honest, and harmless AI assistant whose name is CompassLLM independently developed by Shopee."
-        self.system = 'You are a smart, helpful, honest, and harmless AI assistant whose name is CompassLLM independently developed by Shopee. You should response with markdown format when you write a document.'
+        self.tool_ext_instruct = (
+            "For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\n"
+            '<tool_call>\n{"name": <function-name>, "arguments": <args-json-object>}\n</tool_call>'
+        )
+        self.tool_ext_instruct_force = (
+            "For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\n"
+            '<tool_call>\n{"name": <function-name>, "arguments": <args-json-object>}\n</tool_call>'
+        )
+        # system prompt
+        self.system = (
+            "You are a smart, helpful, honest, and harmless AI assistant whose name is CompassLLM independently developed by Shopee. "
+            "You should response with markdown format when you write a document."
+        )
+        self.system_think = (
+            "You are a smart, helpful, honest, and harmless AI assistant whose name is CompassLLM independently developed by Shopee. "
+            "You should response with markdown format when you write a document. Let's thinking step by step. "
+            "Please ensure that the reasoning process are enclosed within <think> </think> tags, i.e., <think> reasoning process here </think>"
+        )
+        self.system_tools = (
+            "You are a smart, helpful, honest, and harmless AI assistant whose name is CompassLLM independently developed by Shopee.\n"
+            "Your task is to provide appropriate responses and support for user questions and requests. "
+            "You may call one or more functions to assist with the user query.\n"
+            "You have access to the given tools. You need answer with correct arguments type and you can decide whether use these functions or not.\n"
+            "If there are no relevant functions, do not reply any functions."
+        )
+        self.system_fc = "{system}\n\nYou are provided with function signatures within <tools></tools> XML tags:"
+
+        self.system_func = "{system_fc}\n<tools>{tool_text}</tools>\n\n{tool_ext_instruct}"
+        self.system_func_force = "{system_fc}\n{tool_text}\n{tool_ext_instruct_force}"
+
         self.user = '<Human>'
         self.assistant = '<AI>'
         self.separators = [" ", "</s> "]
@@ -266,7 +296,11 @@ class CompassSMoeLLM(BaseModel):
         self.session_len = session_len
         self.max_history_tok = int(self.session_len * 0.25)
 
-    def get_prompt(self, prompt, sequence_start=True):
+    def reset_session_len(self, session_len):
+        self.session_len = session_len
+        self.max_history_tok = int(self.session_len * 0.25)
+
+    def decorate_prompt(self, prompt, sequence_start=True):
         """Return the prompt that is concatenated with other elements in the
         chat template.
 
@@ -279,7 +313,7 @@ class CompassSMoeLLM(BaseModel):
         """
         assert self.capability == 'chat', \
             f'{type(self).__name__} has no capability of {self.capability}'
-        return self.user + ":" + prompt + self.assistant + ":"
+        prompt = self.user + ": " + prompt + self.separators[0] + self.assistant + ":"
 
     def messages2prompt(
             self,
@@ -288,7 +322,7 @@ class CompassSMoeLLM(BaseModel):
             use_default_template=True,
             tokenizer=None,
             tools=None,
-            model_version=None,
+            tool_choice=None,
             **kwargs
         ):
         """Return the prompt that is concatenated with other elements in the
@@ -299,13 +333,20 @@ class CompassSMoeLLM(BaseModel):
         Returns:
             str: the concatenated prompt
         """
+
+        think_mode = kwargs.get("enable_thinking", None)
+        if isinstance(think_mode, List) and len(think_mode) > 0:
+            think_mode = think_mode[-1]
+
         if isinstance(messages, str):
             return messages if not use_default_template else self.get_prompt(messages, sequence_start)
+
         assert isinstance(messages, list), "messages must be a list of dictionaries"
         system, users, assistants, contexts = None, [], [], []
         for message in messages:
-            role = message.get('role')
-            content = message.get('content')
+            role = message['role']
+            content = get_text(message['content'])
+
             if role == 'system':
                 system = content
             elif role == 'user':
@@ -313,9 +354,11 @@ class CompassSMoeLLM(BaseModel):
             elif role == 'tool':
                 users.append(f"<Observation>{content}")
             elif role == 'assistant':
-                if content is None and 'tool_calls' in message:
-                    tool_calls = [json.dumps(call.get('function', {})) for call in message['tool_calls']]
-                    assistants.append("<Function>[" + ','.join(tool_calls) + "]")
+                if 'tool_calls' in message:
+                    func_text = ""
+                    for call in message['tool_calls']:
+                        func_text += "<tool_call>" + json.dumps(call.get('function', {})) + "</tool_call>"
+                    assistants.append(func_text)
                 else:
                     assistants.append(content)
             elif role == 'context':
@@ -324,35 +367,54 @@ class CompassSMoeLLM(BaseModel):
                 raise ValueError(f"Unknown role: {role}")
 
         prompt = ""
+        default_system = ""
         # Only use the last user message if no template is used
         if not use_default_template:
             return users[-1]
 
+        # user defined prompt
         if system is not None and len(system) > 0:
-            # Internal use: when model_version is given, we allow users to revise system prompt,
-            # else we put system message into the first user's content.
-            if model_version:
-                prompt += system
-            else:
-                users[0] = system + users[0]
-                prompt += self.system
-        elif len(self.system) > 0:
-            prompt += self.system
+            default_system = system
+        elif think_mode:
+            default_system = self.system_think
+        elif tools:
+            default_system = self.system_tools
         else:
-            pass
+            default_system = self.system
 
-        last_question = f"{self.user}:{get_text(users[-1])}{self.assistant}:"
+        # if tools is not none,  build function calling system prompt
+        if tools:
+            system_fc = self.system_fc.format(system=default_system)
+
+            if tool_choice and tool_choice == "force":
+                prompt += self.system_func_force.format(
+                            system_fc=system_fc,
+                            tool_text=json.dumps(tools, ensure_ascii=False),
+                            tool_ext_instruct_force=self.tool_ext_instruct_force
+                        ) + self.separators[0]
+            else:
+                prompt += self.system_func.format(
+                            system_fc=system_fc,
+                            tool_text=json.dumps(tools, ensure_ascii=False),
+                            tool_ext_instruct=self.tool_ext_instruct
+                        ) + self.separators[0]
+        else:
+            prompt += default_system
+
+        last_question = f"{self.user}:{users[-1]}{self.assistant}:"
         prompt_enc = tokenizer.encode(prompt + last_question)
 
         # if system prompt + last question exceeds session length, return it directly
         if len(prompt_enc) >= self.session_len:
             return prompt + last_question
+
         # Collect history, truncating if necessary, reserverd 512 tokens for generation
         max_history_tok = min(self.session_len - len(prompt_enc) - 512, self.max_history_tok)
         if max_history_tok > 0:
             history = ""
             for user, assistant in zip(users, assistants):
                 history += f"{self.user}:{user}{self.assistant}:{assistant}{self.separators[1]}"
+
             # Truncate history if needed
             if len(history) > 0:
                 history_tok_cut = tokenizer.encode(history, add_bos=False)[-max_history_tok:]
@@ -362,7 +424,12 @@ class CompassSMoeLLM(BaseModel):
                 prompt += last_question
         else:
             prompt += last_question
+
+        if think_mode:
+            prompt += "<think>"
+
         return prompt
+
     @classmethod
     def match(cls, model_path: str) -> Optional[str]:
         """Return the model_name that was registered to MODELS.
@@ -371,10 +438,218 @@ class CompassSMoeLLM(BaseModel):
             model_path (str): the model path used for matching.
         """
         model_path = model_path.lower()
-        if "compass-smoe" in model_path:
+        if "compass-smoe" in model_path or "compass-v2" in model_path:
+            # compass-v2 only refer to smoe
             return "compass-smoe"
-        if "compass-max" in model_path:
-            return "compass-max"
+        else:
+            return None
+
+
+@MODELS.register_module(name=['compass-moe'])
+@MODELS.register_module(name=['compass-max'])
+class CompassMoeLLM(BaseModel):
+    """Chat template and generation parameters of CompassLLM models."""
+
+    def __init__(self,
+                 temperature=0.3,
+                 top_k=5,
+                 top_p=0.85,
+                 repetition_penalty=1.15,
+                 stop_words=['</s>', '</compass_eot>'],
+                 session_len=4096,
+                 **kwargs):
+        super().__init__(temperature=temperature,
+                         top_k=top_k,
+                         top_p=top_p,
+                         repetition_penalty=repetition_penalty,
+                         stop_words=stop_words,
+                         **kwargs)
+
+        self.tool_ext_instruct = (
+            "For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\n"
+            '<tool_call>\n{"name": <function-name>, "arguments": <args-json-object>}\n</tool_call>'
+        )
+        self.tool_ext_instruct_force = (
+            "For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\n"
+            '<tool_call>\n{"name": <function-name>, "arguments": <args-json-object>}\n</tool_call>'
+        )
+        # system prompt
+        self.system = (
+            "You are a smart, helpful, honest, and harmless AI assistant whose name is CompassLLM independently developed by Shopee. "
+            "You should response with markdown format when you write a document."
+        )
+        self.system_think = (
+            "You are a smart, helpful, honest, and harmless AI assistant whose name is CompassLLM independently developed by Shopee. "
+            "You should response with markdown format when you write a document. Let's thinking step by step. "
+            "Please ensure that the reasoning process are enclosed within <think> </think> tags, i.e., <think> reasoning process here </think>"
+        )
+        self.system_tools = (
+            "You are a smart, helpful, honest, and harmless AI assistant whose name is CompassLLM independently developed by Shopee.\n"
+            "Your task is to provide appropriate responses and support for user questions and requests. "
+            "You may call one or more functions to assist with the user query.\n"
+            "You have access to the given tools. You need answer with correct arguments type and you can decide whether use these functions or not.\n"
+            "If there are no relevant functions, do not reply any functions."
+        )
+        self.system_fc = "{system}\n\nYou are provided with function signatures within <tools></tools> XML tags:"
+
+        self.system_func = "{system_fc}\n<tools>{tool_text}</tools>\n\n{tool_ext_instruct}"
+        self.system_func_force = "{system_fc}\n{tool_text}\n{tool_ext_instruct_force}"
+
+        self.user = '<Human>'
+        self.assistant = '<AI>'
+        self.separators = [" ", "</s> "]
+        # max retrieval context tokens
+        self.max_context_tok = 512
+        self.stop_words = stop_words
+        self.session_len = session_len
+        self.max_history_tok = int(self.session_len * 0.25)
+
+    def reset_session_len(self, session_len):
+        self.session_len = session_len
+        self.max_history_tok = int(self.session_len * 0.25)
+
+    def decorate_prompt(self, prompt, sequence_start=True):
+        """Return the prompt that is concatenated with other elements in the
+        chat template.
+
+        Args:
+            prompt (str): user's input prompt
+            sequence_start (bool): indicator for the first round chat of a
+               session sequence
+        Returns:
+            str: the concatenated prompt
+        """
+        assert self.capability == 'chat', \
+            f'{type(self).__name__} has no capability of {self.capability}'
+        prompt = self.user + ": " + prompt + self.separators[0] + self.assistant + ":"
+
+    def messages2prompt(
+            self,
+            messages,
+            sequence_start=True,
+            use_default_template=True,
+            tokenizer=None,
+            tools=None,
+            tool_choice=None,
+            **kwargs
+        ):
+        """Return the prompt that is concatenated with other elements in the
+        chat template.
+
+        Args:
+            messages (str | List): user's input prompt
+        Returns:
+            str: the concatenated prompt
+        """
+
+        think_mode = kwargs.get("enable_thinking", None)
+        if isinstance(think_mode, List) and len(think_mode) > 0:
+            think_mode = think_mode[-1]
+
+        if isinstance(messages, str):
+            return messages if not use_default_template else self.get_prompt(messages, sequence_start)
+
+        assert isinstance(messages, list), "messages must be a list of dictionaries"
+        system, users, assistants, contexts = None, [], [], []
+        for message in messages:
+            role = message['role']
+            content = get_text(message['content'])
+
+            if role == 'system':
+                system = content
+            elif role == 'user':
+                users.append(content)
+            elif role == 'tool':
+                users.append(f"<Observation>{content}")
+            elif role == 'assistant':
+                if 'tool_calls' in message:
+                    func_text = ""
+                    for call in message['tool_calls']:
+                        func_text += "<tool_call>" + json.dumps(call.get('function', {})) + "</tool_call>"
+                    assistants.append(func_text)
+                else:
+                    assistants.append(content)
+            elif role == 'context':
+                contexts.append(content)
+            else:
+                raise ValueError(f"Unknown role: {role}")
+
+        prompt = ""
+        default_system = ""
+        # Only use the last user message if no template is used
+        if not use_default_template:
+            return users[-1]
+
+        # user defined prompt
+        if system is not None and len(system) > 0:
+            default_system = system
+        elif think_mode:
+            default_system = self.system_think
+        elif tools:
+            default_system = self.system_tools
+        else:
+            default_system = self.system
+
+        # if tools is not none,  build function calling system prompt
+        if tools:
+            system_fc = self.system_fc.format(system=default_system)
+
+            if tool_choice and tool_choice == "force":
+                prompt += self.system_func_force.format(
+                            system_fc=system_fc,
+                            tool_text=json.dumps(tools, ensure_ascii=False),
+                            tool_ext_instruct_force=self.tool_ext_instruct_force
+                        ) + self.separators[0]
+            else:
+                prompt += self.system_func.format(
+                            system_fc=system_fc,
+                            tool_text=json.dumps(tools, ensure_ascii=False),
+                            tool_ext_instruct=self.tool_ext_instruct
+                        ) + self.separators[0]
+        else:
+            prompt += default_system
+
+        last_question = f"{self.user}:{users[-1]}{self.assistant}:"
+        prompt_enc = tokenizer.encode(prompt + last_question)
+
+        # if system prompt + last question exceeds session length, return it directly
+        if len(prompt_enc) >= self.session_len:
+            return prompt + last_question
+
+        # Collect history, truncating if necessary, reserverd 512 tokens for generation
+        max_history_tok = min(self.session_len - len(prompt_enc) - 512, self.max_history_tok)
+        if max_history_tok > 0:
+            history = ""
+            for user, assistant in zip(users, assistants):
+                history += f"{self.user}:{user}{self.assistant}:{assistant}{self.separators[1]}"
+
+            # Truncate history if needed
+            if len(history) > 0:
+                history_tok_cut = tokenizer.encode(history, add_bos=False)[-max_history_tok:]
+                history_cut = tokenizer.decode(history_tok_cut, skip_special_tokens=False)
+                prompt += history_cut + last_question
+            else:
+                prompt += last_question
+        else:
+            prompt += last_question
+
+        if think_mode:
+            prompt += "<think>"
+
+        return prompt
+    
+    @classmethod
+    def match(cls, model_path: str) -> Optional[str]:
+        """Return the model_name that was registered to MODELS.
+
+        Args:
+            model_path (str): the model path used for matching.
+        """
+        model_path = model_path.lower()
+        if "compass-moe" in model_path or "compass-max" in model_path:
+            return "compass-moe"
+        else:
+            return None
 
 
 @MODELS.register_module(name=['deepseek-v3'])

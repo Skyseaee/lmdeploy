@@ -154,6 +154,8 @@ struct MoeFfnWeight: core::Module {
                  int             group_size,
                  int             tp_size,
                  int             tp_rank,
+                 int             ep_size,
+                 int             ep_rank,
                  bool            fuse_silu_act);
 
     void prepare(bool use_simt);

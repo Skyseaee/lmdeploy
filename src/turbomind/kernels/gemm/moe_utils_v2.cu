@@ -268,7 +268,8 @@ __global__ void MoeGateKernel_v8(float*       scales,  // [e,n]
                                  int          top_k,
                                  bool         softmax,
                                  bool         norm_topk,
-                                 float        routed_scale)
+                                 float        routed_scale,
+                                 int2         expert_range)
 {
     constexpr int max_tiles         = kMoeGateMaxTiles;
     constexpr int threads_per_token = max_expert_num / items_per_thread;  // 8
@@ -545,8 +546,9 @@ __global__ void MoeGateKernel_v8(float*       scales,  // [e,n]
         const float scale     = smem.shared_scales[idx][bti2];
 
         if (ti2 < token_num && idx < top_k) {
+            bool valid_expert = (expert_id >= expert_range.x && expert_id < expert_range.y);
             masks[expert_id * token_num_padded + ti2] = idx;
-            scales[idx * token_num + ti2]             = scale * routed_scale;
+            scales[idx * token_num + ti2]             = valid_expert ? scale * routed_scale : 0;
             atomicAdd(&smem.shared_accum[ti2 >> log_tile][expert_id], 1);
         }
     }
@@ -579,6 +581,7 @@ void invokeMoeGate_V2(int*         f2n,            // [e*n]  -> n
                       bool         softmax,
                       bool         norm_topk,
                       float        routed_scale,
+                      int2         expert_range,
                       cudaStream_t st)
 {
     constexpr int base_log_tile = 9;
@@ -612,7 +615,8 @@ void invokeMoeGate_V2(int*         f2n,            // [e*n]  -> n
                 experts_per_token,
                 softmax,
                 norm_topk,
-                routed_scale);
+                routed_scale,
+                expert_range);
 
         return true;
     };
@@ -1102,6 +1106,24 @@ void invokeMoeSoftmaxMaskTopKGroups(
     std::cerr << __FILE__ << "(" << __LINE__ << "): unsupported moe config: expert_num=" << expert_num
               << ", group_size=" << group_size << "\n";
     std::abort();
+}
+
+__global__ void moveOffsets(int* offsets, int expert, int2 expert_range)
+{
+    int thread_id        = threadIdx.x;
+    int local_expert_num = expert_range.y - expert_range.x;
+    for (int i = threadIdx.x; i <= local_expert_num; i += blockDim.x) {
+        offsets[i] = offsets[expert_range.x + i];
+    }
+    __syncthreads();
+    for (int i = threadIdx.x + local_expert_num; i < expert; i += blockDim.x) {
+        offsets[i + 1] = offsets[local_expert_num];
+    }
+}
+
+void invokeMoveOffsets(int* offsets, int expert, int2 expert_range, cudaStream_t st)
+{
+    moveOffsets<<<1, 32, 0, st>>>(offsets, expert, expert_range);
 }
 
 }  // namespace turbomind

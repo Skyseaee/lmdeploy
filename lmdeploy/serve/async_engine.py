@@ -35,7 +35,10 @@ def get_names_from_model(model_path: str, model_name: str = None):
     """Get model name and chat template name from workspace model."""
     triton_model_path = os.path.join(model_path, 'triton_models', 'weights')
     if not os.path.exists(triton_model_path):
-        chat_template_name = best_match_model(model_path)
+        if model_name is not None:
+            chat_template_name = best_match_model(model_name)
+        else:
+            chat_template_name = best_match_model(model_path)
     else:
         # `model_path` refers to a turbomind model, reading
         # chat_template_name from the config
@@ -614,7 +617,8 @@ class AsyncEngine(LogitsMixin):
                                                sequence_start,
                                                tools=tools,
                                                tokenizer=self.tokenizer,
-                                               enable_thinking=enable_thinking)
+                                               enable_thinking=enable_thinking,
+                                               **kwargs)
         if prompt is None:
             raise ValueError(
                 f'You are using base template to handle chat task. Please specify a `--chat-template` name chosen from `lmdeploy list` if you want to use OpenAI messages input.'  # noqa
