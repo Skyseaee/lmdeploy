@@ -425,9 +425,9 @@ async def chat_completions_v1(raw_request: Request = None):
     # text completion for string input
     do_preprocess = False if isinstance(request.messages, str) else request.do_preprocess
     chat_template_kwargs = request.chat_template_kwargs
-    enable_thinking = True
+    enable_thinking = None
     if chat_template_kwargs and isinstance(chat_template_kwargs, dict):
-        enable_thinking = chat_template_kwargs.get('enable_thinking', True)
+        enable_thinking = chat_template_kwargs.get('enable_thinking', None)
     # request.enable_thinking has higer priority than chat_template_kwargs
     if hasattr(request, 'enable_thinking') and request.enable_thinking is not None:
         enable_thinking = request.enable_thinking

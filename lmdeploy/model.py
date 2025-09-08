@@ -1578,7 +1578,11 @@ class Qwen3(Qwen2d5Chat):
     def __init__(self, meta_instruction='', **kwargs):
         super().__init__(meta_instruction=meta_instruction, **kwargs)
 
-    def messages2prompt(self, messages, sequence_start=True, tools=None, tokenizer=None, enable_thinking = True, **kwargs):
+    def messages2prompt(self, messages, sequence_start=True, tools=None, tokenizer=None, enable_thinking = None, **kwargs):
+        # For Qwen3, None is treated as default True
+        if enable_thinking is None:
+            enable_thinking = True
+
         if isinstance(messages, str):
             prompt = self.get_prompt(messages, sequence_start)
             if enable_thinking is False:
