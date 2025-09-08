@@ -88,7 +88,7 @@ struct LlamaLinear::Impl {
         }
 
         check_cuda_error(cublasLtCreate(&cublasLt_));
-        cublas_algo_map_ = std::make_unique<cublasAlgoMap>("gemm_config.in");
+        cublas_algo_map_ = std::make_unique<cublasAlgoMap>("");
         cublas_mutex_    = std::make_unique<std::mutex>();
         cublas_wrapper_  = std::move(std::make_unique<cublasFP8MMWrapper>(cublas_,
                                                                          cublasLt_,

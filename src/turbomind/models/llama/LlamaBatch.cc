@@ -772,6 +772,9 @@ void LlamaBatch::AllocSymmBuffers()
 {
     const ssize_t hidden_units      = model_->hidden_units_;
     const ssize_t vocab_size_padded = model_->vocab_size_padded_;
+    const ssize_t expert_num        = model_->max_expert_num_ * param_.moe_ep_size;
+    const ssize_t inter_size        = model_->moe_param_.inter_size;
+    const ssize_t experts_per_token = model_->moe_param_.experts_per_token;
 
     // Native comm fuses allreduce & rmsnorm in token granularity
     TM_CHECK(max_forward_token_num_ % tp_size_ == 0);
@@ -781,7 +784,7 @@ void LlamaBatch::AllocSymmBuffers()
 
     symm_moe_fp8_buf_       = {{max_forward_token_num_ * param_.attn_dp_size, hidden_units}, DataType::kFloat8_e4m3, symm_alloc_};
     symm_moe_fp16_buf_      = {{max_forward_token_num_ * param_.attn_dp_size, hidden_units}, data_type_, symm_alloc_};
-    symm_moe_gate_fp32_buf_ = {{max_forward_token_num_, model_->max_expert_num_}, DataType::kFloat32, symm_alloc_};
+    symm_moe_gate_fp32_buf_ = {{max_forward_token_num_, expert_num}, DataType::kFloat32, symm_alloc_};
 }
 
 void LlamaBatch::FreeSymmBuffers()

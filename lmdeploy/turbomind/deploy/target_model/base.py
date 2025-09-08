@@ -160,6 +160,7 @@ class BaseOutputModel(ABC):
             tm_params = self.tm_params
             weight_type = self.model_config.weight_type
             quant_algo = self.model_config.quant_algo
+            torch_dtype = self.model_config.torch_dtype
             assert weight_type in ['float16', 'bfloat16', 'int4', 'fp8']
 
             # currently, the tensor type should in
@@ -180,8 +181,8 @@ class BaseOutputModel(ABC):
                     if torch_tensor.dtype == torch.float and torch_tensor.numel() == 1:
                         # for quant scales
                         torch_tensor = torch_tensor.unsqueeze(0)
-                    #if (quant_algo == 'fp8_static') and (torch_tensor.dtype == torch.bfloat16):
-                    #    torch_tensor = torch_tensor.half()
+                    if (quant_algo == 'fp8_static') and (torch_tensor.dtype == torch.bfloat16) and (torch_dtype == "float16"):
+                       torch_tensor = torch_tensor.half()
                     pass
                 else:
                     torch_tensor = torch_tensor.half()

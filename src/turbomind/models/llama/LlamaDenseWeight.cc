@@ -234,11 +234,9 @@ void LlamaDenseWeight::prepare(bool fused_moe, bool use_simt)
 
     auto stream = core::Context::stream().handle();
     if (weight_type == data_type_v<uint4_t>) {
-        TM_CHECK_EQ(data_type, data_type_v<half_t>);
         convert_u4(*this, fused_moe, use_simt, stream);
     }
     else if (weight_type == data_type_v<fp8_e4m3_t> && quant_mode.isFP8BlockScales()) {
-        TM_CHECK_EQ(data_type, data_type_v<bfloat16_t>);
         convert_f8(*this, stream);
     }
     else {

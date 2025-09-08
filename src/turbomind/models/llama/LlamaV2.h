@@ -103,6 +103,7 @@ private:
     const ModelParam     param_;
     const AttentionParam attn_param_;
     const LoraParam      lora_param_;
+    const MoeParam       moe_param_;
 
     const Communicators* const comm_;
 
