@@ -52,8 +52,7 @@ UnifiedDecoder::UnifiedDecoder(const ModelParam&     model,
 
     // TODO(Alan): not support stream parallel when tp > 1
     // TODO(Meng): When tp1 > 1, there is a synchronization issue with the moe_ffn_layer_->Combine, which needs to be fix.
-    if (mlp_tp_size_ > 1)
-        enable_stream_parallel = false;
+    enable_stream_parallel = (mlp_tp_size_ <= 1);
 }
 
 UnifiedDecoder::~UnifiedDecoder()

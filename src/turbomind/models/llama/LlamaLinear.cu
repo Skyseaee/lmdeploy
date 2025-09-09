@@ -16,6 +16,7 @@
 
 #include "src/turbomind/kernels/cutlass_w8a8/scaled_mm_entry.h"
 #include "src/turbomind/models/llama/LlamaLinear.h"
+#include "src/turbomind/models/llama/llama_utils.h"
 #include "src/turbomind/utils/cublasFP8MMWrapper.h"
 #include "src/turbomind/utils/cublasMMWrapper.h"
 #include "src/turbomind/utils/memory_utils.h"
@@ -801,9 +802,7 @@ void LlamaLinear::Impl::tuningFusedMoEGemm(const ModelParam& model, const Engine
 
         size_t dtype_size = turbomind::byte_size(model.data_type);
 
-        const int num_experts = moe.expert_num.size() / engine.moe_ep_size;
-
-        const int max_expert_num = *std::max_element(moe.expert_num.begin(), moe.expert_num.end());
+        const int max_expert_num = *std::max_element(moe.expert_num.begin(), moe.expert_num.end()) * engine.moe_ep_size;
 
         int inter_size = moe.inter_size / engine.moe_tp_size;
 
@@ -849,10 +848,10 @@ void LlamaLinear::Impl::tuningFusedMoEGemm(const ModelParam& model, const Engine
         // Softmax tmp result
         size_t softmax_tmp_size = 0;
 
-        bool const is_pow_2 = (num_experts != 0) && ((num_experts & (num_experts - 1)) == 0);
+        bool const is_pow_2 = (max_expert_num != 0) && ((max_expert_num & (max_expert_num - 1)) == 0);
 
-        if (!is_pow_2 || num_experts > 256) {
-            softmax_tmp_size = num_experts * num_tokens * sizeof(float);
+        if (!is_pow_2 || max_expert_num > 256) {
+            softmax_tmp_size = max_expert_num * num_tokens * sizeof(float);
         }
 
         std::vector<size_t> workspaces{moe_workspace_size,
@@ -909,20 +908,41 @@ void LlamaLinear::Impl::onellmFP8MoE(Tensor&               output,
 
 #ifdef FUSED_MOE_FFN_GEMM
 
-    int const num_experts_per_node = expert_num / m_parallelism_config.ep_size;
-    int const start_expert         = num_experts_per_node * m_parallelism_config.ep_rank;
-    int const end_expert           = start_expert + num_experts_per_node;
+    int num_experts_per_node = expert_num / m_parallelism_config.ep_size;
+    int start_expert         = num_experts_per_node * m_parallelism_config.ep_rank;
+    int end_expert           = start_expert + num_experts_per_node;
+
+    num_experts_per_node = expert_num;
+    start_expert         = 0;
+    end_expert           = expert_num;
 
     invokeMoESelectExpertAndFinalScales(logits.data<float>(),
                                         static_cast<float*>(m_fused_moe_workspace.scale_probs),
                                         static_cast<int*>(m_fused_moe_workspace.selected_experts),
                                         static_cast<float*>(m_fused_moe_workspace.softmax_tmp_workspace),
                                         tokens,
-                                        expert_num,
+                                        num_experts_per_node,
                                         moe_param_.experts_per_token,
                                         start_expert,
                                         end_expert,
                                         stream_);
+
+    // if (!isTuning()) {
+
+    //     printf("=== Debug begin log info with logits: %d\n", m_parallelism_config.ep_rank);
+    //     print_to_screen<float>(logits.data<float>(), tokens);
+    //     printf("=== Debug   end log info with logits: %d\n", m_parallelism_config.ep_rank);
+
+    //     printf("=== Debug begin log info with selected_experts: %d\n", m_parallelism_config.ep_rank);
+    //     print_to_screen<int>(static_cast<int*>(m_fused_moe_workspace.selected_experts),
+    //                          tokens * moe_param_.experts_per_token);
+    //     printf("=== Debug   end log info with selected_experts: %d\n", m_parallelism_config.ep_rank);
+
+    //     printf("=== Debug begin log info with scale_probs: %d\n", m_parallelism_config.ep_rank);
+    //     print_to_screen<float>(static_cast<float*>(m_fused_moe_workspace.scale_probs),
+    //                            tokens * moe_param_.experts_per_token);
+    //     printf("=== Debug   end log info with scale_probs: %d\n", m_parallelism_config.ep_rank);
+    // }
 
     tlkc::QuantParams quant_params{};
     if (weights.quant_mode.isFP8Static()) {
@@ -970,7 +990,7 @@ void LlamaLinear::Impl::onellmFP8MoE(Tensor&               output,
     // auto gemm2 = m_gemm_profiler->getBestConfig(tokens, mGemmId2);
     // m_moe_gemm_runner->setTactic(gemm1, gemm2);
 
-    int inter_size = moe_param_.inter_size / engine_param_.mlp_tp_size;
+    int inter_size = moe_param_.inter_size / engine_param_.moe_tp_size;
     int hidden_dim = model_param_.hidden_units;
 
     // NOTE(Alan): 当前函数会拆分成多个Kernel
@@ -990,6 +1010,12 @@ void LlamaLinear::Impl::onellmFP8MoE(Tensor&               output,
     // clang-format off
     
         void* input_activations = input.raw_data();
+
+        // if (!isTuning()) {
+        //     printf("=== Debug begin log info with input: %d\n", m_parallelism_config.ep_rank);
+        //     print_to_screen<__nv_fp8_e4m3>(static_cast<__nv_fp8_e4m3*>(input.raw_data()), tokens);
+        //     printf("=== Debug   end log info with input: %d\n", m_parallelism_config.ep_rank);
+        // }
 
         m_moe_gemm_runner->runMoe(
             /*void const* input_activations*/ input_activations,
@@ -1023,6 +1049,12 @@ void LlamaLinear::Impl::onellmFP8MoE(Tensor&               output,
             /* cudaEvent_t                     */shared_expert_event,
             /* cudaStream_t                    */shared_expert_stream);
         // clang-format on
+
+        // if (!isTuning()) {
+        //     printf("=== Debug begin log info with output: %d\n", m_parallelism_config.ep_rank);
+        //     print_to_screen<__nv_bfloat16>(static_cast<__nv_bfloat16*>(cutlass_inout_buf.raw_data()), tokens);
+        //     printf("=== Debug   end log info with output: %d\n", m_parallelism_config.ep_rank);
+        // }
 #endif
 }
 
