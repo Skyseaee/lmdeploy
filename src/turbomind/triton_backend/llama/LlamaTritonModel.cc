@@ -415,6 +415,12 @@ LlamaTritonModel::LlamaTritonModel(DataType                               dtype,
         FT_CHECK(0);
     }
 
+    // TODO(Alan): 当前fp8 block scale quant方式只支持bfloat16，float16数据类型的模型较少。
+    if (model_param_.quant_mode.isFP8BlockScales() && model_param_.data_type != kBfloat16) {
+        TM_LOG_ERROR("Currently, FP8 Block-Scale Quant Only Support model with bfloat16 data type");
+        FT_CHECK(0);
+    }
+
     if (auto method = get_moe_method()) {
         moe_param_.method = *method;
     }
@@ -512,13 +518,14 @@ void LlamaTritonModel::createEngine(int device_id, int rank)
 {
     CudaDeviceGuard dev_guard(engine_param_.devices[device_id]);
 
-    auto ctx = std::make_unique<Context>(engine_param_.devices[device_id], engine_param_, model_param_, moe_param_);
+    const auto& engine_param = engine_params_.at(rank);
+
+    // Note(meng): Each engine_param has a different rank_size, so we need to pass in the engine_param corresponding to the current device_id.
+    auto ctx = std::make_unique<Context>(engine_param_.devices[device_id], engine_param, model_param_, moe_param_);
 
     core::ContextGuard guard{ctx->core_stream, ctx->allocator, Allocator{kCPUpinned}};
 
     ctx->comm = createCommSplits(rank);
-
-    const auto& engine_param = engine_params_.at(rank);
 
     // Get `h_comm` first as ctx will be moved later
     const auto h_comm = ctx->comm.h_comm;

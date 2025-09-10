@@ -139,6 +139,7 @@ void print_to_screen(const T* result, const int size)
         TM_LOG_WARNING("It is an nullptr, skip! \n");
         return;
     }
+    cudaDeviceSynchronize();
     T* tmp = reinterpret_cast<T*>(malloc(sizeof(T) * size));
     check_cuda_error(cudaMemcpy(tmp, result, sizeof(T) * size, cudaMemcpyDeviceToHost));
     for (int i = 0; i < size; ++i) {
