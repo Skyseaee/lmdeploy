@@ -25,8 +25,8 @@ if(NOT Python3_EXECUTABLE)
 endif()
 
 execute_process(
-  WORKING_DIRECTORY ${CUTLASS_DIR}/python/
-  COMMAND ${Python3_EXECUTABLE} setup_library.py develop
+  WORKING_DIRECTORY ${CUTLASS_DIR}
+  COMMAND ${Python3_EXECUTABLE} python/setup_library.py develop
   RESULT_VARIABLE _CUTLASS_LIBRARY_SUCCESS)
 
 if(NOT _CUTLASS_LIBRARY_SUCCESS MATCHES 0)

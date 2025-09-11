@@ -25,13 +25,13 @@ stages:
     - docker login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD"
     - apk add git python3 py3-pip bash
     - python3 -m pip install setuptools-scm
-
     - git fetch origin $CI_COMMIT_REF_NAME --tags --depth=30
     - export IMAGE_TAG_PREFIX=$(echo "$IMAGE_TAG_PREFIX" | sed 's/lmdeploy/onellm/')
     - export FULL_VERSION=$(python3 -c "from setuptools_scm import get_version; print(get_version(version_scheme='no-guess-dev'))")
     - export VERSION=$(echo "$FULL_VERSION" | sed 's/+g/-/')
     - export BASE_IMAGE_TAG_NAME=${IMAGE_TAG_PREFIX}:${VERSION}
     - echo "${BASE_IMAGE_TAG_NAME}"
+
   script:
     - |
       echo "BASE_IMAGE_TAG_NAME=${BASE_IMAGE_TAG_NAME}" > image.env
@@ -42,7 +42,7 @@ stages:
         export NOTEBOOK_IMAGE_TAG_NAME=${IMAGE_TAG_NAME}-notebook
         echo "${NOTEBOOK_IMAGE_TAG_NAME}"
         cd docker/aip_notebook_image
-        docker build --build-arg BASE_IMAGE_TAG=${IMAGE_TAG_NAME} --network=host -f ./dockerfile  -t "$NOTEBOOK_IMAGE_TAG_NAME" .
+        docker build --network=host --build-arg BASE_IMAGE_TAG=${IMAGE_TAG_NAME} -f ./dockerfile  -t "$NOTEBOOK_IMAGE_TAG_NAME" .
         docker push "$NOTEBOOK_IMAGE_TAG_NAME"
         docker rmi "$NOTEBOOK_IMAGE_TAG_NAME"
       elif [[ "$CI_JOB_NAME" == *"eval"* ]]; then
@@ -66,9 +66,21 @@ stages:
       else
         # for onellm
         echo "${IMAGE_TAG_NAME}"
-        docker build --network=host --build-arg VERSION=${VERSION} -f ${DOCKERFILE_PATH} -t "$IMAGE_TAG_NAME" .
+        export CACHE_IMG=${IMAGE_TAG_PREFIX}/cache-image
+        docker pull $CACHE_IMG || true
+        DOCKER_BUILDKIT=1 docker build --network=host --build-arg VERSION=${VERSION} \
+          --build-arg BUILDKIT_INLINE_CACHE=1 \
+          --cache-from ${CACHE_IMG} \
+          -t ${CACHE_IMG} \
+          -t "$IMAGE_TAG_NAME" \
+          -f ${DOCKERFILE_PATH} .
         docker push "$IMAGE_TAG_NAME"
         docker rmi "$IMAGE_TAG_NAME"
+      fi
+
+      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
+        docker push $CACHE_IMG
+        docker rmi $CACHE_IMG
       fi
 
   image: docker:24.0.6
