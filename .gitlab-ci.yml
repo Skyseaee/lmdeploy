@@ -31,7 +31,6 @@ stages:
     - export VERSION=$(echo "$FULL_VERSION" | sed 's/+g/-/')
     - export BASE_IMAGE_TAG_NAME=${IMAGE_TAG_PREFIX}:${VERSION}
     - echo "${BASE_IMAGE_TAG_NAME}"
-
   script:
     - |
       echo "BASE_IMAGE_TAG_NAME=${BASE_IMAGE_TAG_NAME}" > image.env
@@ -76,13 +75,12 @@ stages:
           -f ${DOCKERFILE_PATH} .
         docker push "$IMAGE_TAG_NAME"
         docker rmi "$IMAGE_TAG_NAME"
-      fi
 
-      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
-        docker push $CACHE_IMG
-        docker rmi $CACHE_IMG
+        if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
+          docker push $CACHE_IMG
+          docker rmi $CACHE_IMG
+        fi
       fi
-
   image: docker:24.0.6
   services:
     - docker:24.0.6-dind
