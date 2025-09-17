@@ -73,17 +73,15 @@ stages:
           -t ${CACHE_IMG} \
           -t "$IMAGE_TAG_NAME" \
           -f ${DOCKERFILE_PATH} .
-        docker push "$IMAGE_TAG_NAME"
-        docker rmi "$IMAGE_TAG_NAME"
-
         if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
           docker push $CACHE_IMG
-          docker rmi $CACHE_IMG
         fi
+        docker push "$IMAGE_TAG_NAME"
+        docker rmi "$IMAGE_TAG_NAME"
       fi
   image: docker:24.0.6
-  services:
-    - docker:24.0.6-dind
+    #  services:
+    #    - docker:24.0.6-dind
   when: manual
   artifacts:
     reports:

@@ -8,20 +8,17 @@ ARG CUDA_VERSION_SHORT=cu126
 ARG CMAKE_VERSION=3.31.6
 ARG WHEEL_VERSION=0.45.1
 ARG DEBIAN_FRONTEND=noninteractive
-ARG VERSION
 
 ENV PIP_CACHE_DIR=/root/.cache/pip \
     CACHE_HOME=/root/.cache \
     CCACHE_DIR=/root/.cache/ccache \
-    MAKEFLAGS="-j$(nproc)" \
     PATH=${PYTHON_INSTALL_PATH}/bin:/usr/lib/ccache:$PATH \
     NCCL_LAUNCH_MODE=GROUP \
     LD_LIBRARY_PATH=/usr/local/cuda/compat/lib.real:/opt/tritonserver/lib:${PYTHON_INSTALL_PATH}/lib/python3.10/site-packages/nvidia/nvjitlink/lib:$LD_LIBRARY_PATH \
     TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas \
     LD_PRELOAD=/usr/local/cuda/lib64/libcudart.so \
     PROMETHEUS_MULTIPROC_DIR=/workspace/metrics \
-    DEBIAN_FRONTEND=noninteractive \
-    ONELLM_VERSION=${VERSION}
+    DEBIAN_FRONTEND=noninteractive
 
 RUN mkdir -p \
     /workspace/metrics \
@@ -110,6 +107,9 @@ RUN rsync -avL scripts_maas/ /workspace/scripts && \
     sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list && \
     apt-get update && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /opt/lmdeploy
+
+ARG VERSION
+ENV ONELLM_VERSION=${VERSION}
 
 WORKDIR /workspace
 
