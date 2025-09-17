@@ -4,7 +4,7 @@ variables:
   GIT_STRATEGY: fetch
   GIT_SUBMODULE_STRATEGY: recursive
   IMAGE_TAG_PREFIX: "${CI_REGISTRY_IMAGE}${CI_PROJECT_PATH_SLUG}"
-  DOCKER_HOST: tcp://docker:2375
+  DOCKER_HOST: unix:///var/run/docker.sock
   DOCKER_TLS_CERTDIR: ""
   CUDA_VISIBLE_DEVICES: "2,3"  # used for gpu-test
   AIS_LOGIN_EMAIL: "PassinYourInfo"
