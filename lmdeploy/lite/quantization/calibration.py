@@ -142,9 +142,19 @@ class CalibrationContext():
         def _forward(mod, *args, **kwargs):
 
             mod.to(self.device)
-            if isinstance(args[0], tuple):
+            is_tuple = False
+            if not hasattr(kwargs, 'is_tuple'):
+                kwargs['is_tuple'] = False
+            else:
+                is_tuple = kwargs['is_tuple']
+
+            if(isinstance(args[0], tuple)):
                 args = args[0]
+                is_tuple = True
+            
+            kwargs.pop('is_tuple')
             batch_args, batch_kwargs = split_decoder_layer_inputs(self.batch_size, *args, **kwargs)
+            kwargs['is_tuple'] = is_tuple
             batch_outputs = []
             samples = len(batch_args)
 
@@ -153,12 +163,8 @@ class CalibrationContext():
             for i in range(len(batch_args)):
                 batch_outputs.append(self._ori_forwards[mod](*batch_args[i], **batch_kwargs[i]))
 
-            # if len(batch_outputs) > 0 and len(batch_outputs[0]) > 0 and isinstance(batch_outputs[0][0], torch.Tensor) and batch_outputs[0][0].ndim == 2:
-            #     for i, outs in enumerate(batch_outputs):
-            #         for j, out in enumerate(outs):
-            #             if out.ndim == 2:
-            #                 batch_outputs[i][j] = out.unsqueeze(0)
-
+            if not isinstance(batch_outputs[0], tuple):
+                batch_outputs = [(out, ) for out in batch_outputs]
             outputs = concat_decoder_layer_outputs(batch_outputs)
 
             del batch_outputs, batch_args, batch_kwargs, args
@@ -167,7 +173,10 @@ class CalibrationContext():
             max_memory = torch.cuda.max_memory_allocated() / 1024 / 1024 / 1024
             print(f'{m_name}, samples: {samples}, '
                   f'max gpu memory: {max_memory:.2f} GB')
-            return outputs
+            if is_tuple:
+                return outputs[0]
+            else:
+                return outputs
 
         for layer in self.name2layer.values():
             self._ori_forwards[layer] = layer.forward
