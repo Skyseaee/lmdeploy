@@ -1,5 +1,5 @@
 FROM harbor.shopeemobile.com/aip/tinydocker/filecopy:v1 AS file-copy
-FROM harbor.shopeemobile.com/aip/nvcr.io/nvidia/pytorch:24.06-py3
+FROM harbor.shopeemobile.com/aip/nvcr.io/nvidia/pytorch:24.06-py3 AS base
 
 ARG PYTHON_INSTALL_PATH=/opt/py3
 ARG TORCH_VERSION=2.7.0
@@ -68,6 +68,9 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install --no-cache-dir -r /tmp/requirements_cuda.txt && \
     python3 -m pip show torch
 
+
+FROM base AS wheel
+
 WORKDIR /opt/lmdeploy/
 COPY src src
 COPY lmdeploy lmdeploy
@@ -93,9 +96,16 @@ RUN --mount=type=cache,target=/root/.cache/ccache \
         -DCMAKE_C_COMPILER_LAUNCHER=ccache \
         -DCMAKE_CUDA_COMPILER_LAUNCHER=ccache
 
-RUN --mount=type=cache,target=/root/.cache/pip \
-    cd build && ninja -j$(nproc) && ninja install && \
-    cd .. && python3 -m pip install --use-pep517 .
+RUN --mount=type=cache,target=/root/.cache/ccache \
+    cd build && ninja -j$(nproc)
+
+RUN python3 -m pip wheel --use-pep517 . -w ./dist
+
+
+FROM base AS release
+
+COPY --from=wheel /opt/lmdeploy/dist /opt/lmdeploy/dist
+RUN python3 -m pip install --no-cache-dir /opt/lmdeploy/dist/*.whl
 
 COPY *.sh .
 COPY scripts scripts

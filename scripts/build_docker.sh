@@ -37,11 +37,17 @@ fi
 docker pull $CACHE_IMAGE_TAG || true
 
 DOCKER_BUILDKIT=1 docker build --build-arg BUILDKIT_INLINE_CACHE=1 \
-  --build-arg VERSION=${VERSION} \
+  --target wheel \
   --cache-from ${CACHE_IMAGE_TAG} \
-  -t ${IMAGE_TAG} \
   -t ${CACHE_IMAGE_TAG} \
   -f ${DOCKERFILE_PATH} .
 
+DOCKER_BUILDKIT=1 docker build --build-arg BUILDKIT_INLINE_CACHE=1 \
+  --build-arg VERSION=${VERSION} \
+  --cache-from ${CACHE_IMAGE_TAG} \
+  --target release \
+  -t ${IMAGE_TAG} \
+  -f ${DOCKERFILE_PATH} .
+
 # docker push $IMAGE_TAG
-docker push $CACHE_IMAGE_TAG
+# docker push $CACHE_IMAGE_TAG

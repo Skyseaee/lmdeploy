@@ -66,11 +66,20 @@ stages:
         # for onellm
         echo "${IMAGE_TAG_NAME}"
         export CACHE_IMG=${IMAGE_TAG_PREFIX}/cache-image
+        # Use BuildKit cache to persist the build directory
         docker pull $CACHE_IMG || true
+        DOCKER_BUILDKIT=1 docker build --network=host \
+          --build-arg BUILDKIT_INLINE_CACHE=1 \
+          --cache-from ${CACHE_IMG} \
+          --target wheel \
+          -t ${CACHE_IMG} \
+          -f ${DOCKERFILE_PATH} .
+
+        # release img with pip install wheel
         DOCKER_BUILDKIT=1 docker build --network=host --build-arg VERSION=${VERSION} \
           --build-arg BUILDKIT_INLINE_CACHE=1 \
           --cache-from ${CACHE_IMG} \
-          -t ${CACHE_IMG} \
+          --target release \
           -t "$IMAGE_TAG_NAME" \
           -f ${DOCKERFILE_PATH} .
         if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
