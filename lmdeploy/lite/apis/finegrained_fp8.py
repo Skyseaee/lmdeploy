@@ -48,7 +48,7 @@ def finegrained_fp8(model: str,
     model_path = model
     model_type, _ = get_task(model_path)
 
-    config = AutoConfig.from_pretrained(model_path)
+    config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
     tokenizer = AutoTokenizer.from_pretrained(model_path,
                                               use_fast=False,
                                               trust_remote_code=True)
@@ -71,7 +71,16 @@ def finegrained_fp8(model: str,
                 trust_remote_code=True
             )
         else:
-            raise ValueError(f"Fine-grained FP8 doesn't support {model_arch} now.")
+            try:
+                quantized_model = AutoModelForCausalLM.from_pretrained(
+                    model_path,
+                    torch_dtype="auto",
+                    device_map="auto",
+                    quantization_config=quant_config,
+                    trust_remote_code=True
+                )
+            except ValueError as e:
+                raise ValueError(f"Fine-grained FP8 doesn't support {model_arch} now. ({e})")
 
     quantized_model.save_pretrained(work_dir)
     tokenizer.save_pretrained(work_dir)
