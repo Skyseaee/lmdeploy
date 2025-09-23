@@ -107,7 +107,7 @@ FROM base AS release
 COPY --from=wheel /opt/lmdeploy/dist /opt/lmdeploy/dist
 RUN python3 -m pip install --no-cache-dir /opt/lmdeploy/dist/*.whl
 
-COPY *.sh .
+COPY start_server.sh health_check.sh /workspace/
 COPY scripts scripts
 COPY scripts_maas scripts_maas
 COPY tests/test_lmdeploy /workspace/tests/test_lmdeploy
