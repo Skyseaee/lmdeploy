@@ -85,6 +85,8 @@ RUN --mount=type=cache,target=/root/.cache/ccache \
         -DCMAKE_INSTALL_PREFIX=/opt/lmdeploy/install \
         -DBUILD_PY_FFI=ON \
         -DBUILD_MULTI_GPU=ON \
+        -DCMAKE_CXX_STANDARD=20 \
+        -DCMAKE_CXX_STANDARD_REQUIRED=ON \
         -DCMAKE_CUDA_FLAGS="-lineinfo" \
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DUSE_NVTX=ON \
@@ -98,6 +100,8 @@ RUN --mount=type=cache,target=/root/.cache/ccache \
 
 RUN --mount=type=cache,target=/root/.cache/ccache \
     cd build && ninja -j$(nproc)
+
+RUN cd build && grep -r "std=c++" compile_commands.json || echo "No std flag found"
 
 RUN python3 -m pip wheel --use-pep517 . -w ./dist
 
