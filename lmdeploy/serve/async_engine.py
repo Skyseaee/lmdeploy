@@ -25,10 +25,11 @@ from lmdeploy.model import MODELS, BaseChatTemplate, ChatTemplateConfig, best_ma
 from lmdeploy.pytorch.disagg.request import DistServeConnectionRequest, DistServeInitRequest
 from lmdeploy.serve.utils import LogitsMixin
 from lmdeploy.tokenizer import DetokenizeState
-from lmdeploy.utils import _get_and_verify_max_len, _stop_words, get_hf_gen_cfg, get_logger
+from lmdeploy.utils import _get_and_verify_max_len, _stop_words, get_hf_gen_cfg
 import time
-from aipinfer import logger
-
+#from aipinfer import logger
+from lmdeploy.utils import get_logger
+logger = get_logger('lmdeploy')
 
 
 def get_names_from_model(model_path: str, model_name: str = None):

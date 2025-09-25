@@ -31,7 +31,9 @@ from .deploy.config import TurbomindModelConfig
 from .supported_models import is_supported
 from .utils import ModelSource, get_model_source
 
-from aipinfer import logger
+#from aipinfer import logger
+from lmdeploy.utils import get_logger
+logger = get_logger('lmdeploy')
 
 # TODO: find another way import _turbomind
 lmdeploy_dir = osp.split(lmdeploy.__file__)[0]

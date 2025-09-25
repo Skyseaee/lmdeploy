@@ -4,7 +4,9 @@ from functools import partial
 from typing import List
 
 import torch
-from aipinfer import logger
+#from aipinfer import logger
+from lmdeploy.utils import get_logger
+logger = get_logger('lmdeploy')
 
 from .parameter import get_params
 from .source_model.base import BaseReader

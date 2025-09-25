@@ -3,11 +3,11 @@
 from typing import List, Optional
 
 from .messages import GenerationConfig
-from .utils import get_logger
 
-from aipinfer import logger
+#from aipinfer import logger
 
-# logger = get_logger('lmdeploy')
+from lmdeploy.utils import get_logger
+logger = get_logger('lmdeploy')
 
 
 class RequestLogger:

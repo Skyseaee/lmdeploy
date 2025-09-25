@@ -5,14 +5,20 @@ import logging
 import os
 import sys
 import time
+import threading
+import queue
+import atexit
 from contextlib import contextmanager
 from logging import Logger, LogRecord
+from logging.handlers import QueueHandler, QueueListener
 from typing import List, Optional, TypeVar, Union
 
 from transformers import PretrainedConfig
+import re
+from logging.handlers import RotatingFileHandler
 
 logger_initialized = {}
-
+queue_listeners = {}
 
 class _ASNI_COLOR:
     BRIGHT_RED = '\033[91m'
@@ -77,12 +83,30 @@ class FilterDuplicateWarning(logging.Filter):
 _FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(filename)s:%(lineno)d' \
           ' - %(message)s'
 
+def _cleanup_queue_listeners():
+    """Clean up all queue listeners on exit."""
+    for listener in queue_listeners.values():
+        listener.stop()
+    queue_listeners.clear()
+# Register cleanup function
+atexit.register(_cleanup_queue_listeners) 
+
+def _namer(default_name: str) -> str:
+    dirpath = os.path.dirname(default_name)
+    base = os.path.basename(default_name)       # "log.log.1"
+    root, _ = base.rsplit('.', 1)               # "log.log", "1"
+    stem, ext = os.path.splitext(root)          # ("log", ".log")
+    ts = time.strftime('%Y-%m-%d_%H-%M-%S', time.localtime())
+    return os.path.join(dirpath, f'{stem}.{ts}{ext}')
 
 def get_logger(name: Optional[str] = None,
                log_file: Optional[str] = None,
                log_level: int = logging.INFO,
                file_mode: str = 'a',
-               log_formatter: str = _FORMAT) -> Logger:
+               log_formatter: str = _FORMAT,
+               enqueue: bool = False,
+               rotation: Optional[int] = 100 * 1024 ** 2,
+               retention: int = 10) -> Logger:
     """Initialize and get a logger by name.
 
     If the logger has not been initialized, this method will initialize the
@@ -97,6 +121,9 @@ def get_logger(name: Optional[str] = None,
         file_mode (str): The file mode used in opening log file.
             Defaults to 'a'.
         log_formatter (str): The logger output format.
+        enqueue (bool): Whether to use queue to handle logs.
+        rotation (int | None): The maximum size of the log file.
+        retention (int): The maximum number of log files to retain.
     Returns:
         logging.Logger: The expected logger.
     """
@@ -118,8 +145,8 @@ def get_logger(name: Optional[str] = None,
     stream_handler = logging.StreamHandler(stream=sys.stdout)
     handlers = [stream_handler]
 
-    # set log_file from env
-    log_file = log_file or os.getenv('LMDEPLOY_LOG_FILE')
+    # set log_file from env or use default
+    log_file = log_file if log_file else os.getenv('ONELLM_LOG_FILE', '/workspace/log/log.log')
 
     if log_file is not None:
         log_file = os.path.expanduser(log_file)
@@ -129,7 +156,18 @@ def get_logger(name: Optional[str] = None,
         # Here, the default behaviour of the official logger is 'a'. Thus, we
         # provide an interface to change the file mode to the default
         # behaviour.
-        file_handler = logging.FileHandler(log_file, file_mode)
+        if rotation: 
+            # Rotating Processor: Split by size + Retain historical files
+            file_handler = RotatingFileHandler(
+                filename=log_file,
+                maxBytes=rotation,
+                backupCount=max(0, retention),
+                encoding='utf-8',
+                delay=True,
+            )
+        else:
+            file_handler = logging.FileHandler(log_file, file_mode)
+        file_handler.namer = _namer
         handlers.append(file_handler)
 
     formatter = ColorFormatter(log_formatter)
@@ -137,7 +175,21 @@ def get_logger(name: Optional[str] = None,
         handler.setFormatter(formatter)
         handler.setLevel(logging.DEBUG)
         handler.addFilter(FilterDuplicateWarning(name))
-        logger.addHandler(handler)
+    if enqueue:
+        # Create a queue and queue handler
+        log_queue = queue.Queue(-1)  # Unbounded queue
+        queue_handler = QueueHandler(log_queue)
+        # Create queue listener with the actual handlers
+        listener = QueueListener(log_queue, *handlers, respect_handler_level=True)
+        listener.start()
+        # Store listener for cleanup
+        queue_listeners[name or 'root'] = listener
+        # Add only the queue handler to the logger
+        logger.addHandler(queue_handler)
+    else:
+        # Add handlers directly (synchronous)
+        for handler in handlers:
+            logger.addHandler(handler)
 
     logger.setLevel(log_level)
     logger.propagate = False

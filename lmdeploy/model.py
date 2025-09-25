@@ -8,10 +8,9 @@ from typing import List, Literal, Optional, Union
 
 from mmengine import Registry
 
-# from lmdeploy.utils import get_logger
-
-# logger = get_logger('lmdeploy')
-from aipinfer import logger
+from lmdeploy.utils import get_logger
+logger = get_logger('lmdeploy')
+#from aipinfer import logger
 MODELS = Registry('model', locations=['lmdeploy.model'])
 
 
