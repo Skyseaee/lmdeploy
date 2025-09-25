@@ -10,7 +10,9 @@ from lmdeploy.archs import get_model_arch, search_nested_config
 from lmdeploy.messages import TurbomindEngineConfig
 from lmdeploy.model import MODELS, best_match_model
 from lmdeploy.utils import get_model
-from aipinfer import logger
+#from aipinfer import logger
+from lmdeploy.utils import get_logger
+logger = get_logger('lmdeploy')
 
 from ...utils import _get_and_verify_max_len, is_bf16_supported
 from ..supported_models import SUPPORTED_ARCHS, is_supported

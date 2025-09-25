@@ -20,7 +20,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from fastapi.security.http import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.middleware.base import BaseHTTPMiddleware
 from sse_starlette.sse import ServerSentEvent, EventSourceResponse
-from aipinfer import logger
+#from aipinfer import logger
 
 from lmdeploy.archs import get_task
 from lmdeploy.messages import GenerationConfig, LogitsProcessor, PytorchEngineConfig, TurbomindEngineConfig
@@ -41,9 +41,8 @@ from lmdeploy.serve.openai.protocol import (ChatCompletionRequest, ChatCompletio
 from lmdeploy.serve.openai.reasoning_parser.reasoning_parser import ReasoningParser, ReasoningParserManager
 from lmdeploy.serve.openai.tool_parser.tool_parser import ToolParser, ToolParserManager
 from lmdeploy.tokenizer import DetokenizeState, Tokenizer
-# from lmdeploy.utils import get_logger
-# yapf: enable
-# logger = get_logger('lmdeploy')
+from lmdeploy.utils import get_logger
+logger = get_logger('lmdeploy')
 
 
 class VariableInterface:

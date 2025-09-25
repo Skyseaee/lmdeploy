@@ -3,8 +3,9 @@ import os
 from typing import Dict, List, Literal, Optional, Union
 
 from transformers import AutoConfig
-from aipinfer import logger
-
+#from aipinfer import logger
+from lmdeploy.utils import get_logger
+logger = get_logger('lmdeploy')
 from .messages import PytorchEngineConfig, TurbomindEngineConfig
 
 

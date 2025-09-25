@@ -6,10 +6,9 @@ import numpy as np
 import torch
 
 from lmdeploy.messages import GenerationConfig
-# from lmdeploy.utils import get_logger
-
-# logger = get_logger('lmdeploy')
-from aipinfer import logger
+from lmdeploy.utils import get_logger
+logger = get_logger('lmdeploy')
+#from aipinfer import logger
 
 InputIdsType = List[int]
 InputEmbsType = Union[None, List[Union[torch.Tensor, np.ndarray]]]
