@@ -91,7 +91,61 @@ def pytest_generate_tests(metafunc):
             ids=[name for name, _ in models]
         )
 
+ONELLM_TEST_API = str(os.getenv("ONELLM_TEST_API", "generate")).strip("/")
+
+def get_model_list(api_url: str="http://0.0.0.0:23333/v1/models"):
+    """Get model list from api server."""
+    response = requests.get(api_url)
+    if hasattr(response, 'text'):
+        model_list = json.loads(response.text)
+        model_list = model_list.pop('data', [])
+        return [item['id'] for item in model_list]
+    return None
+    
 def post_request(prompt, image_url=None):
+    while ONELLM_TEST_API in ["v1/chat/completions", "v1/completions"]:
+        model_name = get_model_list("http://0.0.0.0:23333/v1/models")[0]
+        content = [{'type': 'text', 'text': prompt}]
+        if image_url:
+            content.append({'type': 'image_url', 'image_url': {'url': image_url}})
+        messages=[{
+            'role': 'user',
+            'content': content,
+        }]
+        if ONELLM_TEST_API == "v1/chat/completions":
+            pload = {
+                'messages': messages,
+                'model': model_name,
+                'stream': False,
+                'do_sample': False,
+                'top_k': 1,
+                'output_len': 64,
+                'do_preprocess': True,
+                'traceid': 123457,
+            }
+            res = requests.post(url="http://0.0.0.0:23333/v1/chat/completions", 
+                                json=pload, 
+                                headers = {'content-type': 'application/json'},
+                                stream=False)
+            return res
+        elif ONELLM_TEST_API == "v1/completions":
+            if image_url:
+                break
+            pload = {
+                'prompt': prompt,
+                'model': model_name,
+                'stream': False,
+                'do_sample': False,
+                'top_k': 1,
+                'output_len': 64,
+                'do_preprocess': True,
+                'traceid': 123458,
+            }
+            res = requests.post(url="http://0.0.0.0:23333/v1/completions", 
+                                json=pload, 
+                                headers = {'content-type': 'application/json'},
+                                stream=False)
+            return res
     data = {
         'question': prompt,
         'do_sample': False,
