@@ -194,7 +194,18 @@ def test_server(model_name, model_config, server_runner):
         res = post_request(test_data.prompt, test_data.image_url)
         assert res.status_code == 200, f"Request failed with status code {res.status_code}"
 
-        response = res.json()['text']
+        response_json = res.json()
+        try:
+            if ONELLM_TEST_API in ["v1/chat/completions", "v1/completions"]:
+                if ONELLM_TEST_API == "v1/chat/completions":
+                    response = response_json['choices'][0]['message']['content']
+                else:
+                    response = response_json['choices'][0]['text']
+            else:
+                response = response_json['text']
+        except (KeyError, IndexError, TypeError) as e:
+            pytest.fail(f"Failed to extract response text: {e}, response_json: {response_json}")
+
         expected_answer = test_data.ground_truth
         if test_data.verification == "==":
             assert response == expected_answer, f"Expected '{expected_answer}', got '{response}'"
