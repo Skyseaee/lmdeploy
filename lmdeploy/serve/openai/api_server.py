@@ -454,14 +454,16 @@ async def chat_completions_v1(raw_request: Request = None):
         sequence_end=True,
         do_preprocess=do_preprocess,
         adapter_name=adapter_name,
-        enable_thinking=enable_thinking
+        enable_thinking=enable_thinking,
+        traceid=request.traceid
     )
 
     def create_stream_response_json(index: int,
                                     delta_message: DeltaMessage,
                                     finish_reason: Optional[str] = None,
                                     logprobs: Optional[LogProbs] = None,
-                                    usage: Optional[UsageInfo] = None) -> str:
+                                    usage: Optional[UsageInfo] = None,
+                                    traceid: Optional[Union[str, int]]= None) -> str:
         choice_data = ChatCompletionResponseStreamChoice(index=index,
                                                          delta=delta_message,
                                                          finish_reason=finish_reason,
@@ -472,6 +474,7 @@ async def chat_completions_v1(raw_request: Request = None):
             model=model_name,
             choices=[choice_data],
             usage=usage,
+            traceid=traceid
         )
         response_json = response.model_dump_json()
 
@@ -538,7 +541,8 @@ async def chat_completions_v1(raw_request: Request = None):
                                                         delta_message=delta_message,
                                                         finish_reason=res.finish_reason,
                                                         logprobs=logprobs,
-                                                        usage=usage)
+                                                        usage=usage,
+                                                        traceid=request.traceid)
             if res.cache_block_ids is not None:
                 response_json['cache_block_ids'] = res.cache_block_ids
                 response_json['remote_token_ids'] = res.token_ids
@@ -620,6 +624,7 @@ async def chat_completions_v1(raw_request: Request = None):
         model=model_name,
         choices=choices,
         usage=usage,
+        traceid=request.traceid
     ).model_dump()
 
     if with_cache:
@@ -731,14 +736,16 @@ async def completions_v1(raw_request: Request = None):
             sequence_start=True,
             sequence_end=True,
             do_preprocess=False,
-            adapter_name=adapter_name)
+            adapter_name=adapter_name,
+            traceid=request.traceid)
         generators.append(result_generator)
 
     def create_stream_response_json(index: int,
                                     text: str,
                                     finish_reason: Optional[str] = None,
                                     logprobs: Optional[LogProbs] = None,
-                                    usage: Optional[UsageInfo] = None) -> str:
+                                    usage: Optional[UsageInfo] = None,
+                                    traceid: Optional[Union[int, str]] = None) -> str:
         choice_data = CompletionResponseStreamChoice(index=index,
                                                      text=text,
                                                      finish_reason=finish_reason,
@@ -749,6 +756,7 @@ async def completions_v1(raw_request: Request = None):
             model=model_name,
             choices=[choice_data],
             usage=usage,
+            traceid=traceid
         )
         response_json = response.model_dump()
         return response_json
@@ -780,7 +788,8 @@ async def completions_v1(raw_request: Request = None):
                                                             text=res.response,
                                                             finish_reason=res.finish_reason,
                                                             logprobs=logprobs,
-                                                            usage=usage)
+                                                            usage=usage,
+                                                            traceid=request.traceid)
                 if res.cache_block_ids is not None:
                     response_json['cache_block_ids'] = res.cache_block_ids
                     response_json['remote_token_ids'] = res.token_ids
@@ -852,6 +861,7 @@ async def completions_v1(raw_request: Request = None):
         model=model_name,
         choices=choices,
         usage=usage,
+        traceid=request.traceid
     ).model_dump()
 
     if with_cache:
