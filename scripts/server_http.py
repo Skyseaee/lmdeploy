@@ -96,6 +96,7 @@ def server_http(config_path: str):
     config_dict["vision_max_batch_size"] = config['predictors'][0].get("vision-max-batch-size", 1)
     session_len = config['predictors'][0].get("session-len", None)
     config_dict["enable_prefix_caching"] = config['predictors'][0].get("enable-prefix-caching", True)
+    config_dict["enable_metrics"] = config['predictors'][0].get("enable-metrics", True)
     config_dict["max_log_len"] = config['predictors'][0].get("max-log-len", 1024)
     config_dict["model_name"] = config['predictors'][0].get("model-name", "")
     reasoning_parser = config['predictors'][0].get("reasoning-parser", None)

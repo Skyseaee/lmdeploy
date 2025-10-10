@@ -6,6 +6,7 @@
 #include "src/turbomind/models/llama/Barrier.h"
 #include "src/turbomind/utils/cuda_utils.h"
 #include "src/turbomind/utils/logger.h"
+#include "src/turbomind/utils/cache_metrics_data.h"
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
@@ -104,6 +105,11 @@ public:
         return max_block_count_;
     }
 
+    int total_count() const noexcept
+    {
+        return blocks_.size();
+    }
+
     int active_count() const noexcept
     {
         return active_ids_.size();
@@ -116,7 +122,7 @@ public:
 
     int free_count() const noexcept
     {
-        return (max_block_count_ - blocks_.size()) + free_ids_.size();
+        return free_ids_.size();
     }
 
     Block& block(int idx)

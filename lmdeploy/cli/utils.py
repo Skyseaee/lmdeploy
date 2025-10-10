@@ -571,6 +571,11 @@ class ArgumentHelper:
                                    type=int,
                                    default=1,
                                    help='the max number of forward passes in prefill stage')
+    
+    @staticmethod
+    def enable_metrics(parser):
+        """Add argument enable_metrics to parser."""
+        return parser.add_argument('--enable-metrics', action='store_true', default=False, help='enable metrics system')
 
     @staticmethod
     def max_prefill_token_num(parser):

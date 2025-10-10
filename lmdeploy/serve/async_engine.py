@@ -21,6 +21,8 @@ from lmdeploy import Tokenizer
 from lmdeploy.archs import get_model_arch
 from lmdeploy.logger import RequestLogger
 from lmdeploy.messages import GenerationConfig, PytorchEngineConfig, Response, ResponseType, TurbomindEngineConfig
+from lmdeploy.metrics.metrics_processor import metrics_processor
+from lmdeploy.metrics.stats import IterationStats, RequestState
 from lmdeploy.model import MODELS, BaseChatTemplate, ChatTemplateConfig, best_match_model
 from lmdeploy.pytorch.disagg.request import DistServeConnectionRequest, DistServeInitRequest
 from lmdeploy.serve.utils import LogitsMixin
@@ -315,6 +317,9 @@ class AsyncEngine(LogitsMixin):
         self.internal_thread = _EventLoopThread(daemon=True)
         self.limiter: asyncio.Semaphore = None
 
+        # build stat loggers
+        self._build_stat_loggers()
+
     def close(self):
         self.internal_thread.close()
         self.free_insts = None
@@ -358,6 +363,25 @@ class AsyncEngine(LogitsMixin):
         self.engine = Engine.from_pretrained(model_path, tokenizer=self.tokenizer, engine_config=backend_config)
         self.backend_config = self.engine.engine_config
         self.hf_tm_cfg = getattr(self.engine.model_config, 'hf_config', None)
+    
+    def _build_stat_loggers(self):
+        self.stat_loggers = []
+
+        if getattr(self.backend_config, 'enable_metrics', False):
+            from lmdeploy.metrics.loggers import LoggingStatLogger, PrometheusStatLogger
+            dp_rank = self.backend_config.dp_rank if self.backend_config.dp > 1 and hasattr(self.backend_config, 'dp_rank') else 0
+
+            logger.info(f'enable metrics, with dp: {self.backend_config.dp} dp_rank: {dp_rank}')
+            self.stat_loggers = [
+                LoggingStatLogger(dp_rank=dp_rank),
+                PrometheusStatLogger(model_name=self.model_name, max_model_len=self.session_len, dp_rank=dp_rank)
+            ]
+
+            # set stats loggers of metrics processor
+            metrics_processor.stat_loggers = self.stat_loggers
+    
+    def get_schedule_metrics(self):
+        return self.engine.get_schedule_metrics()
 
     def __call__(self,
                  prompts: Union[List[str], str, List[Dict], List[List[Dict]]] = None,
@@ -392,6 +416,12 @@ class AsyncEngine(LogitsMixin):
                                 use_tqdm=use_tqdm,
                                 input_ids=input_ids,
                                 **kwargs)
+    
+    async def do_log_stats(self):
+        """Loop through CLI logger and Prometheus logger and output the
+        metrics."""
+        for stat_logger in self.stat_loggers:
+            stat_logger.log()
 
     async def stop_session(self, session_id: int):
         """Stop a session by a session_id."""
@@ -838,6 +868,7 @@ class AsyncEngine(LogitsMixin):
         if skip_stop_tokens and not gen_config.ignore_eos:
             stop_ids = gen_config.stop_token_ids or []
 
+        metrics_processor.increment_total_requests()
         async with self.model_inst(session_id) as inst:
             token_ids = input_ids.copy()
             history_len = self.id2step[session_id]
@@ -859,7 +890,10 @@ class AsyncEngine(LogitsMixin):
                                      step=history_len) as gen:
                 prev_len = 0
                 hit_stop_token = 0
+                req_state = RequestState(prompt_tokens=input_len)  # per-requst state
                 async for outputs in gen:
+                    iteration_stats = IterationStats()  # per-iteration stats
+                    metrics_processor.queue_update((outputs, req_state, iteration_stats))
                     # decode res
                     if is_error(outputs.status):
                         break
@@ -935,7 +969,7 @@ class AsyncEngine(LogitsMixin):
                         response = ''
                     # logger.info(f'session {session_id} finished, reason '
                     #             f'"{finish_reason}", input_tokens '
-                    #             f'{len(input_ids)}, outupt_tokens {gen_len}')
+                    #             f'{len(input_ids)}, output_tokens {gen_len}')
                     yield GenOut(response,
                                  self.id2step[session_id],
                                  len(input_ids),

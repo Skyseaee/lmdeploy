@@ -316,6 +316,7 @@ LlamaTritonModel::LlamaTritonModel(DataType                               dtype,
 
     engine_param_.num_tokens_per_iter = engine_reader["num_tokens_per_iter"].as<int>(0);
     engine_param_.max_prefill_iters   = engine_reader["max_prefill_iters"].as<int>(1);
+    engine_param_.enable_metrics      = engine_reader["enable_metrics"].as<bool>(false);
 
     engine_param_.outer_dp_size = engine_reader["outer_dp_size"].as<int>();
     engine_param_.outer_dp_rank = 0;
@@ -577,6 +578,12 @@ void LlamaTritonModel::createEngine(int device_id, int rank)
     h_comm->Sync();
 
     engine.Start();
+}
+
+ScheduleMetrics LlamaTritonModel::getScheduleMetrics(int device_id, int rank)
+{
+    auto& engine = *engines_[device_id];
+    return engine.getScheduleMetrics();
 }
 
 std::string LlamaTritonModel::toString()

@@ -18,6 +18,10 @@ BlockTrie::BlockTrie(size_t block_seq_len, std::shared_ptr<BlockManager> block_m
     block_seq_len_(block_seq_len), block_manager_(block_manager), enable_prefix_caching_(enable_prefix_caching)
 {
     root_ = std::make_shared<TrieNode>();
+    if (enable_prefix_caching_) {
+        prefix_caching_metrics_ = std::make_shared<PrefixCachingMetrics>(1000);
+        prefix_cache_stats_ = std::make_shared<PrefixCacheStats>(0, 0, 0, false);
+    }
 }
 
 void BlockTrie::match(Sequence& seq)
@@ -57,6 +61,20 @@ void BlockTrie::match(Sequence& seq)
         seq.blocks.insert(seq.blocks.end(), matched_blocks.begin(), matched_blocks.end());
         seq.block_unique_ids.insert(seq.block_unique_ids.end(), matched_unique_ids.begin(), matched_unique_ids.end());
     }
+
+    // query cache metrics data
+    int total_blocks_needed = seq.prompt.size() / block_seq_len_;
+
+    int num_hits = static_cast<int>(matched_blocks.size());
+    FT_CHECK(num_hits <= total_blocks_needed);
+
+    if (seq.block_trie_matched) {
+        total_blocks_needed = 0; // no need to match more
+    } else {
+        seq.block_trie_matched = true;
+    }
+
+    query(num_hits, total_blocks_needed);
 }
 
 void BlockTrie::cache(const Sequence& seq)

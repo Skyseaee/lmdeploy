@@ -9,8 +9,11 @@
 #include <iterator>
 #include <memory>
 #include <ostream>
+#include <chrono>
+#include <vector>
 
 #include "src/turbomind/core/core.h"
+#include "src/turbomind/utils/metrics.h"
 
 namespace turbomind {
 
@@ -132,6 +135,8 @@ struct Request {
     std::function<void()> forward_cb;
 
     std::shared_ptr<AtomicRequestState> state;
+
+    std::shared_ptr<RequestMetrics> metrics;
 
     int ec;  // set when disabling conflicting requests
 
