@@ -277,6 +277,9 @@ class CompassVisionModel(VisonModel):
                 continue
             n_images = len([1 for x in message['content'] if x['type'] == 'image'])
             content = [item['text'] for item in message['content'] if item['type'] == 'text']
+            if len(content) == 0: 
+                logger.warning(f"Empty text content for message: {message}, set to '' ")
+                content = ['']
             prompt = (IMAGE_TOKEN + '\n') * n_images + content[0]
             prompt_messages.append(dict(role=message['role'], content=prompt))
         prompt = chat_template.messages2prompt(prompt_messages, sequence_start)

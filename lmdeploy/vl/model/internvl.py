@@ -235,6 +235,9 @@ class InternVLVisionModel(VisonModel):
                 continue
             n_images = len([1 for x in message['content'] if x['type'] == 'image'])
             content = [x.get('text', '') for x in message['content'] if x['type'] == 'text']
+            if len(content) == 0: 
+                logger.warning(f"Empty text content for message: {message}, set to '' ")
+                content = ['']
             prompt = content[0]
             if IMAGE_TOKEN in prompt and f'<img>{IMAGE_TOKEN}' not in prompt:
                 prompt = prompt.replace(f'{IMAGE_TOKEN}', f'<img>{IMAGE_TOKEN}</img>')
