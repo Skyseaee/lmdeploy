@@ -908,6 +908,9 @@ LlamaBatch::LlamaBatch(DataType                 data_type,
 
     // Wait for allocations
     check_cuda_error(cudaStreamSynchronize(stream_));
+
+    UpdateMetrics();
+    UpdatePrefillMetrics(0, 0);
 }
 
 void LlamaBatch::InitializeSampling(const GenerationState& g)
@@ -959,6 +962,8 @@ void LlamaBatch::InitializeSampling(const GenerationState& g)
     model_->dynamic_decode_->Setup(rs, {{"prompt_length", {state_->h_prompt_length, {batch_size}}}});
 
     sync_check_cuda_error();
+
+    UpdateMetrics();
 }
 
 void LlamaBatch::ComputeAndOutputLogits(const Tensor& hidden_states, int first, int last)
@@ -1395,6 +1400,9 @@ void LlamaBatch::InternalThreadEntry()
 
         Initialize(g);
 
+        // Update the schedule metrics since some requests might finish the inference
+        UpdateMetrics();
+
         const int n_active = AllReduce(comm_.h_dp_group, state_->active_size, comm::RedOp::kSum);
 
         if (n_active) {
@@ -1828,6 +1836,52 @@ void LlamaBatch::DestroyCommunicators()
 
     cudaStreamSynchronize(stream_);
     comm_.h_comm->Sync();
+}
+
+void LlamaBatch::UpdateMetrics()
+{
+    if (tp_rank_ == 0 && param_.enable_metrics) {
+        // update schedule metrics
+        int total_seqs, active_seqs, cached_seqs;
+
+        std::tie(total_seqs, active_seqs, cached_seqs) = sequence_manager_->seq_stats();
+
+        {
+            const std::lock_guard<std::mutex> lock(metrics_mutex_);
+
+            schedule_metrics_.total_seqs = total_seqs;
+            schedule_metrics_.active_seqs = active_seqs;
+            schedule_metrics_.waiting_seqs = total_seqs - active_seqs;
+            schedule_metrics_.total_blocks = sequence_manager_->total_count();
+            schedule_metrics_.active_blocks = sequence_manager_->active_count();
+            schedule_metrics_.cached_blocks = sequence_manager_->cached_count();
+            schedule_metrics_.free_blocks = sequence_manager_->free_count();
+
+            auto prefix_cache_stats_ = sequence_manager_->prefix_caching_stats();
+            schedule_metrics_.cache_query_hit = prefix_cache_stats_.first;
+            schedule_metrics_.cache_query_total = prefix_cache_stats_.second;
+            schedule_metrics_.hit_rate = sequence_manager_->prefix_caching_hit_rate();
+        }
+        // update request metrics
+        for (int i = 0; i < state_->size; ++i) {
+            if (!state_->requests[i]) {
+                continue;
+            }
+            
+            auto& metrics = state_->requests[i]->metrics;
+            if (!metrics || metrics->scheduled_time != 0) {
+                continue;
+            }
+
+            metrics->scheduled_time = RequestMetrics::timestamp();
+        }   
+    }
+}
+
+void LlamaBatch::UpdatePrefillMetrics(int prefill_count, int decode_count)
+{
+    schedule_metrics_.prefill_count = prefill_count;
+    schedule_metrics_.decode_count = decode_count;
 }
 
 /*

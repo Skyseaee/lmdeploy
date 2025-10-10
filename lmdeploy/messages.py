@@ -1,7 +1,7 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import enum
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Literal, Optional
+from typing import Any, Callable, Dict, List, Literal, Optional
 
 import torch
 from pydantic.dataclasses import dataclass as pydantic_dataclass
@@ -229,6 +229,7 @@ class TurbomindEngineConfig:
             it to True if you want to update weights after create the pipeline
         mlp_ep_size (int): the number of GPU cards used in expert parallelism,
             default to 1
+        enable_metrics (bool): enable metrics system
     """
 
     dtype: str = 'auto'
@@ -264,6 +265,7 @@ class TurbomindEngineConfig:
     empty_init: bool = False
     communicator: str = 'nccl'
     mlp_ep_size: int = 1
+    enable_metrics: bool = False
 
     def __post_init__(self):
         """Check input validation."""
@@ -334,6 +336,7 @@ class PytorchEngineConfig:
             Default to `MigrationBackend.DLSlime`.
         enable_mp_engine (bool): run engine in multi-process mode.
         model_format (str): weight quantization policy, options: ['fp8'].
+        enable_metrics (bool): enable metrics system
     """
     dtype: str = 'auto'
     tp: int = 1
@@ -363,6 +366,7 @@ class PytorchEngineConfig:
     enable_eplb: bool = False
     enable_mp_engine: bool = False
     model_format: str = None
+    enable_metrics: bool = False
 
     role: EngineRole = EngineRole.Hybrid
     migration_backend: MigrationBackend = MigrationBackend.DLSlime
@@ -436,6 +440,60 @@ class Response:
     index: int = 0
 
 
+# copy from https://github.com/vllm-project/vllm/blob/main/vllm/v1/engine/__init__.py
+class EventType(enum.IntEnum):
+    """The type of engine core request event.
+
+    QUEUED - when the request was received by the engine core and added to the scheduler queue
+    SCHEDULED - when the request was first scheduled for execution
+    PREEMPTED - the request has been put back in the waiting queue in order to make room for other requests to complete.
+                It will be re-scheduled in future and re-start its prefill phase
+    """
+    QUEUED = 1
+    SCHEDULED = 2
+    PREEMPTED = 3  # FIXME, currently ignored for simplicity
+
+
+# copy from https://github.com/vllm-project/vllm/blob/main/vllm/v1/engine/__init__.py
+@dataclass
+class EngineEvent:
+    """A timestamped engine core event associated with a request.
+
+    The timestamp is a monotonic timestamps and is used for by the engine frontend to calculate intervals between engine
+    core events. These timestamps should not be compared with timestamps from other processes.
+    """
+    type: EventType
+    timestamp: float
+
+    @classmethod
+    def new_event(cls, event_type: EventType, timestamp: Optional[float] = None) -> 'EngineEvent':
+        timestamp = time.time() if timestamp is None else timestamp
+        return cls(event_type, timestamp)
+
+
+@dataclass
+class ScheduleMetrics:
+    active_seqs: int = 0
+    waiting_seqs: int = 0
+    total_seqs: int = 0
+    total_blocks: int = 0
+    cached_blocks: int = 0
+    active_blocks: int = 0
+    free_blocks: int = 0
+    decode_count: int = 0
+    prefill_count: int = 0
+    hit_rate: float = 0.0
+    cache_query_hit: int = 0
+    cache_query_total: int = 0
+
+
+@dataclass
+class RequestMetrics:
+    """Metrics info from the inference engine."""
+    token_timestamp: float = 0.0
+    engine_events: List[EngineEvent] = field(default_factory=list)
+
+
 @dataclass
 class EngineOutput:
     """Engine output for turbomind/pytorch engine.
@@ -449,6 +507,7 @@ class EngineOutput:
             position.
         cache_block_ids (List[int]): send cache blocks back for migration in
             Disaggregated LLM Serving when Prefill Engine is Done.
+        req_metrics (RequestMetrics): metrics info from the inference engine.
     """
     status: ResponseType
     token_ids: List[int]
@@ -459,6 +518,7 @@ class EngineOutput:
 
     cache_block_ids: Optional[List[int]] = None
     finish_reason: Optional[Literal['stop', 'length', 'tool_calls', 'end', 'unknown']] = None
+    req_metrics: RequestMetrics = None
 
 @dataclass
 class VisionConfig:

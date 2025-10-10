@@ -5,7 +5,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, List
 
-from lmdeploy.messages import ResponseType
+from lmdeploy.messages import RequestMetrics, ResponseType
 from lmdeploy.utils import get_logger
 
 logger = get_logger('lmdeploy')
@@ -31,7 +31,7 @@ class Response:
     event: asyncio.Event
     data: Any = None
     err_msg: str = ''
-
+    req_metrics: RequestMetrics = None
 
 @dataclass
 class Request:
@@ -111,7 +111,8 @@ class RequestSender:
                             sender_id=self.sender_id,
                             event=event,
                             data=None,
-                            err_msg=None)
+                            err_msg=None,
+                            req_metrics=None)
             req = Request(type=rtype, sender_id=self.sender_id, data=rdata, resp=resp)
             resps.append(resp)
             reqs.append(req)

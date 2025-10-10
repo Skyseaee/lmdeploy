@@ -15,6 +15,7 @@
 #include "src/turbomind/models/llama/llama_params.h"
 
 #include "src/turbomind/utils/cuda_utils.h"
+#include "src/turbomind/utils/metrics.h"
 
 namespace turbomind {
 
@@ -124,6 +125,14 @@ public:
 
     void Warmup();
 
+    ScheduleMetrics getScheduleMetrics()
+    {
+        std::lock_guard<std::mutex> lock(metrics_mutex_);
+        // reset block tire prefix cache stats
+        sequence_manager_->reset_prefix_cache();
+        return schedule_metrics_;
+    }
+
     void profile_run();
 
 private:
@@ -184,6 +193,10 @@ private:
 
     void DestroyCommunicators();
 
+    void UpdateMetrics();
+
+    void UpdatePrefillMetrics(int prefill_count, int decode_count);
+
 private:
     const EngineParam param_;
 
@@ -240,6 +253,9 @@ private:
     Buffer_<int> context_length_buf_;  // history length + input_length
     Buffer_<int> init_context_length_;
 
+    Buffer_<int> running_requests_num_{};
+    Buffer_<int> total_requests_num_{};
+
     Buffer_<int> sequence_lengths_;  // current sequence length
     Buffer_<int> init_ctx_lens_;
     Buffer_<int> lora_mask_buf_;  // lora
@@ -283,6 +299,10 @@ private:
     static constexpr int kMaxEndIdsSize      = 32;
 
     std::thread internal_thread_;
+
+    bool enable_metrics_;
+    ScheduleMetrics schedule_metrics_;
+    std::mutex metrics_mutex_;
 };
 
 using Engine = LlamaBatch;

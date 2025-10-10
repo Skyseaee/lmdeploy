@@ -27,6 +27,7 @@ struct Sequence {
     UniqueIds block_unique_ids;
 
     int input_length = 0;
+    bool block_trie_matched = false;
 
     mutable std::vector<int> prompt;
 
@@ -97,6 +98,9 @@ public:
 
     void UpdateAndSetUnlock(const Sequence& seq);
 
+    int GetFreeBlockCount() const;
+    int GetTotalBlockCount() const;
+
     struct Outcome {
         int allocation;
         int swap_in;
@@ -122,6 +126,51 @@ public:
     {
         return block_manager_->max_block_count();
     }
+
+    int total_count() const noexcept
+    {
+        return block_manager_->total_count();
+    }
+
+    int active_count() const noexcept
+    {
+        return block_manager_->active_count();
+    }
+
+    int free_count() const noexcept
+    {
+        return block_manager_->free_count();
+    }
+
+    int cached_count() const noexcept
+    {
+        return block_manager_->cached_count();
+    }
+
+    std::pair<int, int> prefix_caching_stats() const noexcept
+    {
+        if (block_trie_->enabled()) {
+            return std::make_pair(block_trie_->cache_query_hit(), block_trie_->cache_query_total());
+        }
+        return std::make_pair(0, 0);
+    }
+
+    double prefix_caching_hit_rate() const noexcept
+    {
+        if (block_trie_->enabled()) {
+            return block_trie_->hit_rate();
+        }
+        return 0.0;
+    }
+
+    void reset_prefix_cache()
+    {
+        if (block_trie_->enabled()) {
+            block_trie_->reset_prefix_cache();
+        }
+    }
+
+    std::tuple<int, int, int> seq_stats() const noexcept;
 
 private:
     void Erase(std::map<uint64_t, Sequence>::iterator& it);

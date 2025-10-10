@@ -14,7 +14,7 @@ from dataclasses import asdict
 from functools import partial
 from multiprocessing.reduction import ForkingPickler
 from queue import Queue
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import numpy as np
 import torch
@@ -22,7 +22,7 @@ import yaml
 from torch.nn.utils.rnn import pad_sequence
 
 import lmdeploy
-from lmdeploy.messages import EngineOutput, GenerationConfig, ResponseType, TurbomindEngineConfig
+from lmdeploy.messages import EngineOutput, GenerationConfig, RequestMetrics, ResponseType, ScheduleMetrics, TurbomindEngineConfig
 from lmdeploy.serve.openai.protocol import UpdateParamsRequest
 from lmdeploy.tokenizer import Tokenizer
 from lmdeploy.utils import get_max_batch_size, get_model
@@ -435,12 +435,27 @@ class TurboMind:
             TurboMindInstance: an instance of turbomind
         """
         return TurboMindInstance(self, self.config, cuda_stream_id)
+    
+    def get_schedule_metrics(self):
+        """Get scheduler metrics."""
+        tm_metrics = self.model_comm.get_schedule_metrics(0, 0)
+        return ScheduleMetrics(
+            active_seqs=tm_metrics.active_seqs,
+            waiting_seqs=tm_metrics.waiting_seqs,
+            total_seqs=tm_metrics.total_seqs,
+            total_blocks=tm_metrics.total_blocks,
+            active_blocks=tm_metrics.active_blocks,
+            free_blocks=tm_metrics.free_blocks,
+            hit_rate=tm_metrics.hit_rate,
+            cache_query_hit=tm_metrics.cache_query_hit,
+            cache_query_total=tm_metrics.cache_query_total,
+        )
 
 
 def _get_logits(outputs, offset: int):
     logits = outputs['logits']
 
-    def _func(out: EngineOutput, step: int):
+    def _func(out: EngineOutput, step: int, **kwargs):
         out.logits = logits[:step - offset - 1, :]
 
     return _func
@@ -449,9 +464,29 @@ def _get_logits(outputs, offset: int):
 def _get_last_hidden_state(outputs, offset: int):
     last_hidden_state = outputs['last_hidden_state']
 
-    def _func(out: EngineOutput, step: int):
+    def _func(out: EngineOutput, step: int, **kwargs):
         out.last_hidden_state = last_hidden_state[:step - offset - 1, :]
 
+    return _func
+
+
+def _get_metrics(metrics):
+    import time
+
+    from lmdeploy.messages import EngineEvent, EventType, RequestMetrics
+
+    def _func(out: EngineOutput, step: int, is_first_token: bool, **kwargs):
+        if not is_first_token:
+            out.req_metrics = RequestMetrics(token_timestamp=time.time())
+        else:
+            events = [
+                EngineEvent(EventType.QUEUED, metrics.enque_time / 1e6),
+                EngineEvent(EventType.SCHEDULED, metrics.scheduled_time / 1e6),
+            ]
+            out.req_metrics = RequestMetrics(
+                token_timestamp=time.time(),
+                engine_events=events,
+            )
     return _func
 
 
@@ -554,7 +589,7 @@ class TurboMindInstance:
         return model_inst
 
     def _get_extra_output_processors(self, outputs: Dict[str, torch.Tensor], gen_config: GenerationConfig,
-                                     input_len: int):
+                                     input_len: int,  metrics: '_tm.RequestMetrics'):
 
         def _get_offset(type):
             return input_len - 1 if type == 'generation' else 0
@@ -568,6 +603,8 @@ class TurboMindInstance:
             fs.append(_get_last_hidden_state(outputs, offset))
         if gen_config.logprobs:
             fs.append(_get_logprobs(outputs, gen_config.logprobs))
+        if self.tm_model.engine_config.enable_metrics:
+            fs.append(_get_metrics(metrics))
         return fs
 
     def prepare_embeddings(self, input_embeddings=None, input_embedding_ranges=None):
@@ -693,11 +730,12 @@ class TurboMindInstance:
         sem = StreamingSemaphore()
         signal_cb = partial(self.async_signal_cb, sem)
 
-        outputs, shared_state = self.model_inst.forward(inputs, session, gen_cfg, stream_output, signal_cb)
+        outputs, shared_state, metrics = self.model_inst.forward(inputs, session, gen_cfg, stream_output, 
+                                                                self.tm_model.engine_config.enable_metrics, signal_cb)
 
         outputs = _tm_dict_to_torch_dict(outputs)
 
-        extra_fs = self._get_extra_output_processors(outputs, gen_config, input_len)
+        extra_fs = self._get_extra_output_processors(outputs, gen_config, input_len, metrics)
 
         output_ids_buf = outputs['output_ids']
 
@@ -717,7 +755,8 @@ class TurboMindInstance:
                 if status in [7, 8]:  # finish / canceled defined in request.h
                     finish, status = True, 0
                 elif status:
-                    yield self._get_error_output()
+                    logger.error(f'internal error. status_code {status}')
+                    yield self._get_error_output(metrics)
                     break
 
                 if seq_len == prev_len and not finish:
@@ -726,10 +765,10 @@ class TurboMindInstance:
                 output_ids += output_ids_buf[prev_len:seq_len].tolist()
                 output_len += seq_len - prev_len
                 status = ResponseType.FINISH if finish else ResponseType.SUCCESS  # noqa
-                output = EngineOutput(status, output_ids, output_len)
+                output = EngineOutput(status, output_ids, output_len, req_metrics=metrics)
 
                 for f in extra_fs:
-                    f(output, seq_len)
+                    f(output, seq_len, is_first_token=prev_len == step + input_len)
 
                 prev_len = seq_len
 
@@ -744,7 +783,7 @@ class TurboMindInstance:
         except Exception as e:
             logger.error(f'[async_stream_infer] {type(e).__name__} {e}')
             self.model_inst.cancel()
-            yield self._get_error_output()
+            yield self._get_error_output(metrics)
         finally:
             # Contract: `cb` won't be called again if status is non-zero
             # wait for status to be set as `finish` or `error`
@@ -753,8 +792,8 @@ class TurboMindInstance:
                 state = shared_state.consume()
             # logger.info(f'[async_stream_infer] session {session_id} done')
 
-    def _get_error_output(self):
-        return EngineOutput(status=ResponseType.INTERNAL_ENGINE_ERROR, token_ids=[], num_token=0)
+    def _get_error_output(self, metrics: Optional[RequestMetrics]):
+        return EngineOutput(status=ResponseType.INTERNAL_ENGINE_ERROR, token_ids=[], num_token=0, req_metrics=metrics)
 
     def _get_generation_config(self, cfg: GenerationConfig):
         c = _tm.GenerationConfig()

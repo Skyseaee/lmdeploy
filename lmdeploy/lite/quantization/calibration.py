@@ -151,7 +151,7 @@ class CalibrationContext():
             if(isinstance(args[0], tuple)):
                 args = args[0]
                 is_tuple = True
-            
+
             kwargs.pop('is_tuple')
             batch_args, batch_kwargs = split_decoder_layer_inputs(self.batch_size, *args, **kwargs)
             kwargs['is_tuple'] = is_tuple

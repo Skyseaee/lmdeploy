@@ -181,6 +181,7 @@ class MPEngine:
         server.register_method('instance_async_end', instance_pool.async_end)
         server.register_method('instance_async_cancel', instance_pool.async_cancel)
         server.register_method('instance_async_stream_infer', instance_pool.async_stream_infer)
+        server.register_method('get_schedule_metrics', engine.get_schedule_metrics)
 
         try:
             # run server
@@ -221,6 +222,10 @@ class MPEngine:
     def p2p_connect(self, conn_request):
         """rdma_connect."""
         return self._collective_rpc('p2p_connect', conn_request)
+    
+    def get_schedule_metrics(self):
+        """Get scheduler metrics."""
+        return self._collective_rpc('get_schedule_metrics')
 
     def create_instance(self, cuda_stream_id=0):
         """Create instance."""

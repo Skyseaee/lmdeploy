@@ -170,6 +170,7 @@ class SubCliServe:
         max_prefill_token_num_act = ArgumentHelper.max_prefill_token_num(pt_group)
         quant_policy = ArgumentHelper.quant_policy(pt_group)
         model_format = ArgumentHelper.model_format(pt_group)
+        enable_metrics = ArgumentHelper.enable_metrics(pt_group)
         ArgumentHelper.dp(pt_group)
         ArgumentHelper.enable_microbatch(pt_group)
         ArgumentHelper.enable_eplb(pt_group)
@@ -197,6 +198,7 @@ class SubCliServe:
         tb_group._group_actions.append(max_prefill_token_num_act)
         tb_group._group_actions.append(quant_policy)
         tb_group._group_actions.append(model_format)
+        tb_group._group_actions.append(enable_metrics)
         ArgumentHelper.rope_scaling_factor(tb_group)
         ArgumentHelper.num_tokens_per_iter(tb_group)
         ArgumentHelper.max_prefill_iters(tb_group)
@@ -327,44 +329,50 @@ class SubCliServe:
         if backend == 'pytorch':
             from lmdeploy.messages import PytorchEngineConfig
             adapters = get_lora_adapters(args.adapters)
-            backend_config = PytorchEngineConfig(dtype=args.dtype,
-                                                 tp=args.tp,
-                                                 dp=args.dp,
-                                                 ep=args.ep,
-                                                 max_batch_size=max_batch_size,
-                                                 cache_max_entry_count=args.cache_max_entry_count,
-                                                 block_size=args.cache_block_seq_len,
-                                                 session_len=args.session_len,
-                                                 adapters=adapters,
-                                                 enable_prefix_caching=args.enable_prefix_caching,
-                                                 device_type=args.device,
-                                                 quant_policy=args.quant_policy,
-                                                 eager_mode=args.eager_mode,
-                                                 max_prefill_token_num=args.max_prefill_token_num,
-                                                 enable_microbatch=args.enable_microbatch,
-                                                 enable_eplb=args.enable_eplb,
-                                                 role=EngineRole[args.role],
-                                                 migration_backend=MigrationBackend[args.migration_backend],
-                                                 model_format=args.model_format)
+            backend_config = PytorchEngineConfig(
+                dtype=args.dtype,
+                tp=args.tp,
+                dp=args.dp,
+                ep=args.ep,
+                max_batch_size=max_batch_size,
+                cache_max_entry_count=args.cache_max_entry_count,
+                block_size=args.cache_block_seq_len,
+                session_len=args.session_len,
+                adapters=adapters,
+                enable_prefix_caching=args.enable_prefix_caching,
+                device_type=args.device,
+                quant_policy=args.quant_policy,
+                eager_mode=args.eager_mode,
+                max_prefill_token_num=args.max_prefill_token_num,
+                enable_microbatch=args.enable_microbatch,
+                enable_eplb=args.enable_eplb,
+                enable_metrics=args.enable_metrics,
+                role=EngineRole[args.role],
+                migration_backend=MigrationBackend[args.migration_backend],
+                model_format=args.model_format,
+            )
         else:
             from lmdeploy.messages import TurbomindEngineConfig
-            backend_config = TurbomindEngineConfig(dtype=args.dtype,
-                                                   tp=args.tp,
-                                                   ep=args.ep,
-                                                   enable_expert_parallel=args.enable_expert_parallel,
-                                                   enable_attention_dp=args.enable_attention_dp,
-                                                   max_batch_size=max_batch_size,
-                                                   session_len=args.session_len,
-                                                   model_format=args.model_format,
-                                                   quant_policy=args.quant_policy,
-                                                   rope_scaling_factor=args.rope_scaling_factor,
-                                                   cache_max_entry_count=args.cache_max_entry_count,
-                                                   cache_block_seq_len=args.cache_block_seq_len,
-                                                   enable_prefix_caching=args.enable_prefix_caching,
-                                                   enable_expert_pruning=args.enable_expert_pruning,
-                                                   keep_expert_num=args.keep_expert_num,
-                                                   max_prefill_token_num=args.max_prefill_token_num,
-                                                   communicator=args.communicator)
+            backend_config = TurbomindEngineConfig(
+                dtype=args.dtype,
+                tp=args.tp,
+                ep=args.ep,
+                enable_expert_parallel=args.enable_expert_parallel,
+                enable_attention_dp=args.enable_attention_dp,
+                max_batch_size=max_batch_size,
+                session_len=args.session_len,
+                model_format=args.model_format,
+                quant_policy=args.quant_policy,
+                rope_scaling_factor=args.rope_scaling_factor,
+                cache_max_entry_count=args.cache_max_entry_count,
+                cache_block_seq_len=args.cache_block_seq_len,
+                enable_prefix_caching=args.enable_prefix_caching,
+                enable_expert_pruning=args.enable_expert_pruning,
+                keep_expert_num=args.keep_expert_num,
+                max_prefill_token_num=args.max_prefill_token_num,
+                communicator=args.communicator,
+                enable_metrics=args.enable_metrics,
+            )
         chat_template_config = get_chat_template(args.chat_template)
 
         from lmdeploy.messages import VisionConfig
