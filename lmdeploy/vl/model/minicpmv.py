@@ -229,6 +229,9 @@ class MiniCPMVModel(VisonModel):
                     prompt = (prompt + '\n' if self.version == '2.6' else prompt)
                 prompts.append(prompt)
             content = [x.get('text', '') for x in message['content'] if x['type'] == 'text']
+            if len(content) == 0: 
+                logger.warning(f"Empty text content for message: {message}, set to '' ")
+                content = ['']
             prompt = ''.join(prompts) + content[0]
             prompt_messages.append(dict(role='user', content=prompt))
         prompt = chat_template.messages2prompt(prompt_messages, sequence_start)

@@ -4,7 +4,9 @@ from typing import Dict, List
 import torch
 
 from lmdeploy.vl.model.base import VISION_MODELS, VisonModel
+from lmdeploy.utils import get_logger
 
+logger = get_logger('lmdeploy')
 
 def check_qwen_vl_deps_install():
     """Check qwen_vl_utils."""
@@ -97,6 +99,9 @@ class Qwen2VLModel(VisonModel):
                 continue
             n_images = len([1 for x in message['content'] if x['type'] == 'image'])
             content = [item['text'] for item in message['content'] if item['type'] == 'text']
+            if len(content) == 0: 
+                logger.warning(f"Empty text content for message: {message}, set to '' ")
+                content = ['']
             prompt = content[0]
             if IMAGE_TOKEN in prompt and '<|vision_start|>' not in prompt:
                 prompt = prompt.replace(IMAGE_TOKEN, f'<|vision_start|>{IMAGE_TOKEN}<|vision_end|>')

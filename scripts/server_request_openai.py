@@ -56,6 +56,7 @@ class APIClient:
             repetition_penalty: Optional[float] = 1.0,
             session_id: Optional[int] = -1,
             ignore_eos: Optional[bool] = False,
+            traceid: Optional[Union[str, int]] = 12121212,
             **kwargs):
         """Chat completion v1.
 
@@ -91,6 +92,7 @@ class APIClient:
             'top_p': top_p,
             'temperature': temperature,
             'repetition_penalty': repetition_penalty,
+            'traceid': traceid
         }
         if self.enable_chat:
             pload['messages'] = prompt 
@@ -126,7 +128,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--server-addr",
         type=str,
-        default='http://0.0.0.0:8012',
+        default='http://0.0.0.0:23333',
         help="Parse path of helm, you need locate in benchmark_output directory",
     )
     parser.add_argument(

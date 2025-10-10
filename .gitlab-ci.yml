@@ -9,6 +9,7 @@ variables:
   CUDA_VISIBLE_DEVICES: "2,3"  # used for gpu-test
   AIS_LOGIN_EMAIL: "PassinYourInfo"
   AIS_LOGIN_TOKEN: "PassinYourInfo"
+  ONELLM_TEST_API: "generate"
   AIS_BASE_IMAGE_URL: ""
   # CI_DEBUG_TRACE: "true"
 
@@ -142,6 +143,7 @@ IMG_llvm:
       echo "Using CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}"
       echo "Using AIS_LOGIN_EMAIL=${AIS_LOGIN_EMAIL}"
       echo "Using AIS_LOGIN_TOKEN=${AIS_LOGIN_TOKEN}"
+      echo "Using ONELLM_TEST_API=${ONELLM_TEST_API}"
 
       # Extract suffix from IMAGE_TAG_NAME (parser after :)
       IMAGE_SUFFIX=$(echo "${IMAGE_TAG_NAME}" | sed 's/.*://')
@@ -150,6 +152,7 @@ IMG_llvm:
       docker run --rm --gpus all ${IMAGE_TAG_NAME} nvidia-smi
       docker run --gpus "\"device=${CUDA_VISIBLE_DEVICES}\"" --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 --name ${CONTAINER_NAME} \
         -e AIS_LOGIN_EMAIL=${AIS_LOGIN_EMAIL} -e AIS_LOGIN_TOKEN=${AIS_LOGIN_TOKEN} \
+        -e ONELLM_TEST_API=${ONELLM_TEST_API} \
         -v /data/public_models:/workspace/mnt ${IMAGE_TAG_NAME} \
         bash -c "pytest -vv -s -rsE tests/test_lmdeploy/ --junit-xml=/workspace/test-results.xml" || EXIT_CODE=$?
       docker cp ${CONTAINER_NAME}:/workspace/test-results.xml ${CI_PROJECT_DIR}/ || true

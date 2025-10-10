@@ -147,6 +147,7 @@ class ChatCompletionRequest(BaseModel):
     # fill in the middle (code task)
     prefix: Optional[str] = None
     suffix: Optional[str] = None
+    traceid: Optional[Union[str, int]] = None
 
 
 class FunctionCall(BaseModel):
@@ -221,6 +222,7 @@ class ChatCompletionResponse(BaseModel):
     model: str
     choices: List[ChatCompletionResponseChoice]
     usage: UsageInfo
+    traceid: Optional[Union[str, int]] = None
 
 
 class DeltaFunctionCall(BaseModel):
@@ -260,6 +262,7 @@ class ChatCompletionStreamResponse(BaseModel):
     model: str
     choices: List[ChatCompletionResponseStreamChoice]
     usage: Optional[UsageInfo] = None
+    traceid: Optional[Union[str, int]] = None
 
 
 class CompletionRequest(BaseModel):
@@ -289,6 +292,7 @@ class CompletionRequest(BaseModel):
     seed: Optional[int] = None
     min_p: float = 0.0
     do_sample: Optional[bool] = True
+    traceid: Optional[Union[str, int]] = None
 
 
 class CompletionResponseChoice(BaseModel):
@@ -307,6 +311,7 @@ class CompletionResponse(BaseModel):
     model: str
     choices: List[CompletionResponseChoice]
     usage: UsageInfo
+    traceid: Optional[Union[str, int]] = None
 
 
 class CompletionResponseStreamChoice(BaseModel):
@@ -325,6 +330,7 @@ class CompletionStreamResponse(BaseModel):
     model: str
     choices: List[CompletionResponseStreamChoice]
     usage: Optional[UsageInfo] = None
+    traceid: Optional[Union[str, int]] = None
 
 
 class EmbeddingsRequest(BaseModel):
