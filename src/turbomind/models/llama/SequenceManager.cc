@@ -135,6 +135,35 @@ void SequenceManager::CachePrompt(const Sequences& sequences, int active_size)
     }
 }
 
+void SequenceManager::CacheTokens(const Sequences& sequences, int active_size)
+{
+    if (!block_trie_) {
+        return;
+    }
+
+    for (int i = 0; i < active_size; ++i) {
+        auto& seq = *sequences[i];
+        if (seq.cache_len > seq.tokens.size()) {
+            // seq prefill finished. We dont cache the prompt anymore
+            seq.prompt.clear();
+            continue;
+        }
+        BlockIds  block_ids;
+        UniqueIds block_unique_ids;
+        std::tie(block_ids, block_unique_ids) = block_trie_->Insert(seq, seq.tokens);
+        if (rank_ == 0) {
+            TM_LOG_INFO("[SeqMgr][CacheTokens] ID %llu, cached blocks %d, tokens %d",
+                        seq.id,
+                        block_ids.size(),
+                        seq.tokens.size());
+            TM_LOG_DEBUG("[SeqMgr][CacheTokens] ID %llu, cached block_ids %s, unique_ids %s",
+                        seq.id,
+                        vector2string(block_ids).c_str(),
+                        vector2string(block_unique_ids).c_str());
+        }
+    }
+}
+
 void SequenceManager::CacheGeneration(const Sequence& seq)
 {
     if (!block_trie_) {

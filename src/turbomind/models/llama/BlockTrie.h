@@ -19,11 +19,11 @@ struct TrieNode {
     std::shared_ptr<TrieNode>                             parent;
     size_t                                                hash_key;
     std::vector<int>                                      tokens;
-    // int                                                   block_id;
-    // uint64_t                                              block_unique_id;
+    int                                                   block_id;
+    uint64_t                                              block_unique_id;
     int                                                   last_access_time;
-    BlockIds                                              block_ids;
-    UniqueIds                                             block_unique_ids;
+    // BlockIds                                              block_ids;
+    // UniqueIds                                             block_unique_ids;
 
     bool operator<(const TrieNode& other) const
     {
@@ -132,8 +132,8 @@ public:
 
 private:
     // int verify_traverse(std::shared_ptr<TrieNode>& node);
-    // void DFS(std::shared_ptr<TrieNode>& node);
-    void _DFS(std::shared_ptr<TrieNode>& node);
+    void DFS(std::shared_ptr<TrieNode>& node);
+    // void _DFS(std::shared_ptr<TrieNode>& node);
 
     inline int get_timestamp()
     {
@@ -142,12 +142,12 @@ private:
         ).count();
     }
 
-    std::tuple<BlockIds, UniqueIds> _match_prefix_helper(std::shared_ptr<TrieNode>& node, std::vector<int>& tokens);
-    int _key_match_page(const std::vector<int>& keys0, const std::vector<int>& keys1);
-    std::shared_ptr<TrieNode> _split_child(std::shared_ptr<TrieNode>& child, std::vector<int>& keys, int split_len);
-    size_t _get_keys(const std::vector<int>& tokens);
-    std::tuple<BlockIds, UniqueIds> _insert_helper(std::shared_ptr<TrieNode>& node, const Sequence& seq, std::vector<int>& tokens);
-    bool tokens_equal(const std::vector<int>& tokens0, const std::vector<int>& tokens1);
+    // std::tuple<BlockIds, UniqueIds> _match_prefix_helper(std::shared_ptr<TrieNode>& node, std::vector<int>& tokens);
+    // int _key_match_page(const std::vector<int>& keys0, const std::vector<int>& keys1);
+    // std::shared_ptr<TrieNode> _split_child(std::shared_ptr<TrieNode>& child, std::vector<int>& keys, int split_len);
+    // size_t _get_keys(const std::vector<int>& tokens);
+    // std::tuple<BlockIds, UniqueIds> _insert_helper(std::shared_ptr<TrieNode>& node, const Sequence& seq, std::vector<int>& tokens);
+    // bool tokens_equal(const std::vector<int>& tokens0, const std::vector<int>& tokens1);
 
 private:
     // bool   enable_prefix_caching_;

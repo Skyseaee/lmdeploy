@@ -122,6 +122,13 @@ public:
      */
     void CachePrompt(const Sequences& sequences, int active_size);
 
+    /** @brief cache the input tokens of each seq in sequences[0:active_size-1]
+     *
+     * @param sequences The sequence list
+     * @param active_size the number of active sequences in the list
+     */
+    void CacheTokens(const Sequences& sequences, int active_size);
+
     /** @brief cache the generated tokens of a given sequence
      *
      * @param sequence the given sequence
