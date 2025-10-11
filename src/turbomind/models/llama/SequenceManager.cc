@@ -91,7 +91,7 @@ void SequenceManager::Erase(std::map<uint64_t, Sequence>::iterator& it)
         UpdateAndSetUnlock(seq);
     }
     // if prefix cache enabled, blocks will be shared by sequences, cannot be freed immediately
-    if (!block_trie_) {
+    if (!enable_prefix_caching) {
         freed_.insert(freed_.end(), seq.blocks.begin(), seq.blocks.end());
     }
     (void)sequences_.erase(it);
@@ -108,7 +108,7 @@ bool SequenceManager::Erase(uint64_t id)
 
 void SequenceManager::CachePrompt(const Sequences& sequences, int active_size)
 {
-    if (!block_trie_) {
+    if (!enable_prefix_caching) {
         return;
     }
 
@@ -137,7 +137,7 @@ void SequenceManager::CachePrompt(const Sequences& sequences, int active_size)
 
 void SequenceManager::CacheTokens(const Sequences& sequences, int active_size)
 {
-    if (!block_trie_) {
+    if (!enable_prefix_caching) {
         return;
     }
 
@@ -166,7 +166,7 @@ void SequenceManager::CacheTokens(const Sequences& sequences, int active_size)
 
 void SequenceManager::CacheGeneration(const Sequence& seq)
 {
-    if (!block_trie_) {
+    if (!enable_prefix_caching) {
         return;
     }
 
@@ -471,7 +471,7 @@ void SequenceManager::AssignAndActivate(const Sequences&        sequences,  //
 
 void SequenceManager::PrefixMatch(Sequences& sequences)
 {
-    if (!block_trie_) {
+    if (!enable_prefix_caching) {
         return;
     }
 
@@ -611,7 +611,7 @@ auto SequenceManager::Materialize(Sequences                    sequences,
                  block_manager_->active_count(),
                  block_manager_->cached_count(),
                  block_manager_->free_count());
-    if (block_trie_) {
+    if (enable_prefix_caching) {
         block_trie_->Verify();
     }
     TM_LOG_DEBUG("sequence manager materialize done.");

@@ -171,7 +171,7 @@ public:
 
     std::pair<int, int> prefix_caching_stats() const noexcept
     {
-        if (block_trie_->enabled()) {
+        if (enable_prefix_caching) {
             return std::make_pair(block_trie_->cache_query_hit(), block_trie_->cache_query_total());
         }
         return std::make_pair(0, 0);
@@ -179,7 +179,7 @@ public:
 
     double prefix_caching_hit_rate() const noexcept
     {
-        if (block_trie_->enabled()) {
+        if (enable_prefix_caching) {
             return block_trie_->hit_rate();
         }
         return 0.0;
@@ -187,7 +187,7 @@ public:
 
     void reset_prefix_cache()
     {
-        if (block_trie_->enabled()) {
+        if (enable_prefix_caching) {
             block_trie_->reset_prefix_cache();
         }
     }
