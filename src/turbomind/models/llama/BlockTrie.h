@@ -16,7 +16,7 @@ struct Sequence;
 
 struct TrieNode {
     std::unordered_map<size_t, std::shared_ptr<TrieNode>> children;
-    std::shared_ptr<TrieNode>                             parent;
+    // std::shared_ptr<TrieNode>                             parent;
     size_t                                                hash_key;
     std::vector<int>                                      tokens;
     int                                                   block_id;
