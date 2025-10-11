@@ -36,7 +36,7 @@ SequenceManager::SequenceManager(size_t             layer_num,
                                  int                rank,
                                  core::Allocator    allocator,
                                  GetFreeMemSize     get_free_size):
-    block_seq_len_(block_config.block_len_), rank_(rank)
+    block_seq_len_(block_config.block_len_), rank_(rank), enable_prefix_caching_(enable_prefix_caching)
 {
     block::Layout layout{block_config};
     // dump(layout);
@@ -91,7 +91,7 @@ void SequenceManager::Erase(std::map<uint64_t, Sequence>::iterator& it)
         UpdateAndSetUnlock(seq);
     }
     // if prefix cache enabled, blocks will be shared by sequences, cannot be freed immediately
-    if (!enable_prefix_caching) {
+    if (!enable_prefix_caching_) {
         freed_.insert(freed_.end(), seq.blocks.begin(), seq.blocks.end());
     }
     (void)sequences_.erase(it);
@@ -108,7 +108,7 @@ bool SequenceManager::Erase(uint64_t id)
 
 void SequenceManager::CachePrompt(const Sequences& sequences, int active_size)
 {
-    if (!enable_prefix_caching) {
+    if (!enable_prefix_caching_) {
         return;
     }
 
@@ -137,7 +137,7 @@ void SequenceManager::CachePrompt(const Sequences& sequences, int active_size)
 
 void SequenceManager::CacheTokens(const Sequences& sequences, int active_size)
 {
-    if (!enable_prefix_caching) {
+    if (!enable_prefix_caching_) {
         return;
     }
 
@@ -166,7 +166,7 @@ void SequenceManager::CacheTokens(const Sequences& sequences, int active_size)
 
 void SequenceManager::CacheGeneration(const Sequence& seq)
 {
-    if (!enable_prefix_caching) {
+    if (!enable_prefix_caching_) {
         return;
     }
 
@@ -471,7 +471,7 @@ void SequenceManager::AssignAndActivate(const Sequences&        sequences,  //
 
 void SequenceManager::PrefixMatch(Sequences& sequences)
 {
-    if (!enable_prefix_caching) {
+    if (!enable_prefix_caching_) {
         return;
     }
 
@@ -611,7 +611,7 @@ auto SequenceManager::Materialize(Sequences                    sequences,
                  block_manager_->active_count(),
                  block_manager_->cached_count(),
                  block_manager_->free_count());
-    if (enable_prefix_caching) {
+    if (enable_prefix_caching_) {
         block_trie_->Verify();
     }
     TM_LOG_DEBUG("sequence manager materialize done.");
