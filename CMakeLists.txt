@@ -136,7 +136,7 @@ if(BUILD_MULTI_GPU)
 endif()
 
 
-set(CXX_STD "17" CACHE STRING "C++ standard")
+set(CXX_STD "20" CACHE STRING "C++ standard")
 # enable gold linker for binary and .so
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=gold")
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fuse-ld=gold")
@@ -155,7 +155,7 @@ endif()
 
 # setting compiler flags
 set(CMAKE_C_FLAGS    "${CMAKE_C_FLAGS}")
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --threads=96 -Xcompiler -Wall -ldl") # -Xptxas -v
 
 # TODO: build for sm_72 & sm_87 on aarch64 platform (Jetson devices)
@@ -195,6 +195,9 @@ set(CMAKE_CUDA_FLAGS_DEBUG "${CMAKE_CUDA_FLAGS_DEBUG} -O0 -G -Xcompiler -Wall")
 
 set(CMAKE_CXX_STANDARD "${CXX_STD}")
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(CMAKE_CXX_STANDARD LESS 20)
+  message(FATAL_ERROR "C++ standard must be at least 20, but got ${CMAKE_CXX_STANDARD}")
+endif()
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-extended-lambda")
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --expt-relaxed-constexpr")
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} --std=c++${CXX_STD}")
