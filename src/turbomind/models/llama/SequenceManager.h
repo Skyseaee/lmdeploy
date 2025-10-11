@@ -219,6 +219,7 @@ private:
 private:
     int block_seq_len_;
     int rank_;
+    bool enable_prefix_caching_;
 
     // Use `std::map` to avoid reference invalidation
     std::map<uint64_t, Sequence> sequences_;
