@@ -23,7 +23,7 @@ BlockTrie::BlockTrie(size_t block_len, std::shared_ptr<BlockManager> block_manag
     prefix_cache_stats_ = std::make_shared<PrefixCacheStats>(0, 0, 0, false);
 }
 
-std::tuple<BlockIds, UniqueIds> BlockTrie::MatchPrefix(const Sequence& seq)
+std::tuple<BlockIds, UniqueIds> BlockTrie::MatchPrefix(Sequence& seq)
 {
     BlockIds  matched_blocks;
     UniqueIds matched_unique_ids;
