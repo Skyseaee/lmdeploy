@@ -61,6 +61,10 @@ if (BUILD_TEST)
     Catch2
     GIT_REPOSITORY https://github.com/catchorg/Catch2.git
     GIT_TAG        v3.8.0
+    GIT_SHALLOW ON
+    GIT_PROGRESS            TRUE
+    USES_TERMINAL_DOWNLOAD  TRUE
+    EXCLUDE_FROM_ALL
   )
   FetchContent_MakeAvailable(Catch2)
 endif()
@@ -108,6 +112,29 @@ FetchContent_Declare(
 set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "Build static library of yaml-cpp")
 FetchContent_MakeAvailable(yaml-cpp)
 
+FetchContent_Declare(
+  xgrammar
+  GIT_REPOSITORY          https://github.com/mlc-ai/xgrammar.git
+  GIT_TAG                 v0.1.25
+  GIT_SUBMODULES          "3rdparty/dlpack"
+  GIT_PROGRESS            TRUE
+  USES_TERMINAL_DOWNLOAD  TRUE
+  UPDATE_DISCONNECTED     1
+)
+
+FetchContent_GetProperties(xgrammar)
+if(NOT xgrammar_POPULATED)
+  # Fetch the content using previously declared details
+  FetchContent_Populate(xgrammar)
+
+  file(WRITE ${xgrammar_SOURCE_DIR}/config.cmake "set(XGRAMMAR_BUILD_PYTHON_BINDINGS OFF)\n")
+  if(NOT MSVC)
+    file(APPEND ${xgrammar_SOURCE_DIR}/config.cmake "set(CMAKE_CXX_FLAGS \"-Wno-error\")\n")
+  endif()
+
+  # Bring the populated content into the build
+  add_subdirectory(${xgrammar_SOURCE_DIR} ${xgrammar_BINARY_DIR})
+endif()
 
 # the environment variable
 #   ASAN_OPTIONS=protect_shadow_gap=0,intercept_tls_get_addr=0
@@ -283,6 +310,7 @@ add_subdirectory(src)
 # install python api
 if (BUILD_PY_FFI)
   install(TARGETS _turbomind DESTINATION ${CMAKE_SOURCE_DIR}/lmdeploy/lib)
+  install(TARGETS _xgrammar DESTINATION ${CMAKE_SOURCE_DIR}/lmdeploy/lib)
 endif ()
 
 # add_subdirectory(examples/cpp)

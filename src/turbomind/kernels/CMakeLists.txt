@@ -81,6 +81,9 @@ set_property(TARGET moe_load_balance_kernels PROPERTY CUDA_RESOLVE_DEVICE_SYMBOL
 # if (BUILD_TEST)
 #     add_subdirectory(flash_attention)
 # endif ()
+add_library(apply_token_bitmask_inplace_cuda STATIC apply_token_bitmask_inplace_cuda.cu)
+set_property(TARGET apply_token_bitmask_inplace_cuda PROPERTY POSITION_INDEPENDENT_CODE  ON)
+set_property(TARGET apply_token_bitmask_inplace_cuda PROPERTY CUDA_RESOLVE_DEVICE_SYMBOLS  ON)
 
 add_subdirectory(attention)
 add_subdirectory(gemm)

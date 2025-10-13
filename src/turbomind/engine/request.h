@@ -12,6 +12,8 @@
 #include <chrono>
 #include <vector>
 
+#include <xgrammar/xgrammar.h>
+
 #include "src/turbomind/core/core.h"
 #include "src/turbomind/utils/metrics.h"
 
@@ -152,6 +154,8 @@ struct Request {
         kFinish   = 7,
         kCancel   = 8,
     };
+
+    std::shared_ptr<xgrammar::GrammarMatcher> matcher;
 };
 
 inline void UpdateState(Request& r, int status, int seq_len)
