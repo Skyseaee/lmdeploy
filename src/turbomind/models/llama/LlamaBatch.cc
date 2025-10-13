@@ -1223,7 +1223,15 @@ void LlamaBatch::Finish(GenerationState& g, std::vector<Signal>& signals)
     }
 
     // Cache computed blocks to block trie
-    sequence_manager_->CacheTokens(state_->sequences, batch_size);
+    sequence_manager_->CachePrompt(state_->sequences, batch_size);
+    
+    // Cache tokens for finished requests
+    for (int i = 0; i < batch_size - g.partial; ++i) {
+        if (state_->h_finished[i]) {
+            // This request has finished, cache its tokens
+            sequence_manager_->CacheTokens(state_->sequences, i + 1);
+        }
+    }
 
     if (debug_ && tp_rank_ == 0) {
         for (int i = 0; i < batch_size; ++i) {
