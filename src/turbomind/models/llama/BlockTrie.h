@@ -126,7 +126,7 @@ public:
         return prefix_cache_stats_->queries;
     }
 
-    std::tuple<BlockIds, UniqueIds> MatchPrefix(std::vector<int>& tokens);
+    std::tuple<BlockIds, UniqueIds> MatchPrefix(const Sequence& seq);
 
     std::tuple<BlockIds, UniqueIds> Insert(const Sequence& seq, const std::vector<int>& tokens);
 
