@@ -155,8 +155,12 @@ class LlamaModel(BaseInputModel):
                     raise ValueError(f'Ambiguous rope_scaling in config: {model_arg}')
                 scaling_type = llama2_scaling_type if llama2_scaling_type \
                     else llama3_scaling_type
+                if rope_scaling.get('mrope_section') is not None:
+                    scaling_type = 'mrope'
                 scaling_factor = rope_scaling.get('factor', 0.0)
-                if scaling_type == 'dynamic':
+                if scaling_type == 'default':
+                    pass
+                elif scaling_type == 'dynamic':
                     rope_param.__dict__.update(type='dynamic',
                                                factor=scaling_factor,
                                                max_position_embeddings=max_position_embeddings)
@@ -178,14 +182,21 @@ class LlamaModel(BaseInputModel):
                         attention_factor = 0.1 * math.log(scaling_factor) + 1.0
                     beta_fast = rope_scaling.get('beta_fast', 32.0)
                     beta_slow = rope_scaling.get('beta_slow', 1.0)
-                    rope_param.__dict__.update(type='yarn',
-                                               factor=scaling_factor,
-                                               max_position_embeddings=max_position_embeddings,
-                                               attention_factor=attention_factor,
-                                               beta_fast=beta_fast,
-                                               beta_slow=beta_slow)
+                    rope_param.type = 'yarn'
+                    if 'original_max_position_embeddings' in rope_scaling:
+                        original_max_position_embeddings = rope_scaling['original_max_position_embeddings']
+                        scaling_factor = max_position_embeddings / original_max_position_embeddings
+                    else:
+                        original_max_position_embeddings = max_position_embeddings
+                    rope_param.factor = scaling_factor
+                    rope_param.max_position_embeddings = original_max_position_embeddings
+                    rope_param.attention_factor = attention_factor
+                    rope_param.beta_fast = beta_fast
+                    rope_param.beta_slow = beta_slow
                 elif scaling_type == 'mrope':
                     mrope_section = rope_scaling.get('mrope_section', [16, 24, 24])
+                    rope_param.type = 'mrope'
+                    rope_param.mrope_section = mrope_section
                 else:
                     raise RuntimeError(f'Unsupported rope type: {scaling_type}')
 
@@ -206,13 +217,6 @@ class LlamaModel(BaseInputModel):
             vocab_size=vocab_size,
             rope_theta=rope_theta,
             max_position_embeddings=max_position_embeddings,
-            original_max_position_embeddings=original_max_position_embeddings,
-            use_dynamic_ntk=use_dynamic_ntk,
-            rope_scaling_type=scaling_type,
-            rope_scaling_factor=scaling_factor,
-            mrope_section=mrope_section,
-            low_freq_factor=low_freq_factor,
-            high_freq_factor=high_freq_factor,
             attention_factor=attention_factor,
             beta_fast=beta_fast,
             beta_slow=beta_slow,

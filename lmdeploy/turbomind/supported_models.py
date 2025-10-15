@@ -35,6 +35,8 @@ SUPPORTED_ARCHS = dict(
     Qwen2VLForConditionalGeneration='qwen2',
     # Qwen2.5-VL-7B-Instruct
     Qwen2_5_VLForConditionalGeneration='qwen2',
+    # Qwen3-VL-30A3B-Instruct
+    Qwen3VLMoeForConditionalGeneration='qwen3_vl_moe',
     # mistral
     MistralForCausalLM='llama',
     # llava
@@ -128,7 +130,7 @@ def is_supported(model_path: str):
                 llm_arch = cfg.text_config.architectures[0]
                 if llm_arch in ['Qwen2ForCausalLM', 'LlamaForCausalLM']:
                     support_by_turbomind = _is_head_dim_supported(cfg.text_config)
-            elif arch == "Qwen2_5_VLForConditionalGeneration":
+            elif arch in ["Qwen2_5_VLForConditionalGeneration", "Qwen3VLMoeForConditionalGeneration"]:
                 support_by_turbomind =  _is_head_dim_supported(cfg)
             elif arch == 'MolmoForCausalLM':
                 kv_heads = cfg.num_key_value_heads

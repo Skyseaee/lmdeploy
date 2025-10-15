@@ -120,6 +120,7 @@ def check_vl_llm(config: dict) -> bool:
         'LlavaLlamaForCausalLM', 'LlavaMistralForCausalLM', 'CogVLMForCausalLM', 'InternLMXComposer2ForCausalLM',
         'InternVLChatModel', 'MiniCPMV', 'LlavaForConditionalGeneration', 'LlavaNextForConditionalGeneration',
         'Phi3VForCausalLM', 'Qwen2VLForConditionalGeneration', 'Qwen2_5_VLForConditionalGeneration',
+        'Qwen3VLMoeForConditionalGeneration',
         'MllamaForConditionalGeneration', 'MolmoForCausalLM', 'Gemma3ForConditionalGeneration',
         'Llama4ForConditionalGeneration', 'InternVLForConditionalGeneration', 'LlavaQwenForCausalLM',
         'MiniGeminiLlamaForCausalLM', 'MGMLlamaForCausalLM', "CompassLLVM"

@@ -100,6 +100,7 @@ class APIClient:
             pload['prompt'] = prompt
 
         headers = {'content-type': 'application/json'}
+        print(pload)
         response = requests.post(self.completions_chat_v1_url if self.enable_chat else self.completions_v1_url,
                                  headers=headers,
                                  json=pload,
@@ -121,6 +122,13 @@ class APIClient:
                     output = json_loads(decoded)
                     yield output
 
+import base64
+
+def encode_image_to_base64(image_path):
+    """将本地图片编码为 Base64 格式"""
+    with open(image_path, "rb") as image_file:
+        base64_encoded = base64.b64encode(image_file.read()).decode("utf-8")
+    return base64_encoded
 
 if __name__ == "__main__":
     import argparse
@@ -128,7 +136,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--server-addr",
         type=str,
-        default='http://0.0.0.0:23333',
+        default='http://sg12.aip.mlp.shopee.io/services/618001',
         help="Parse path of helm, you need locate in benchmark_output directory",
     )
     parser.add_argument(
@@ -155,6 +163,7 @@ if __name__ == "__main__":
         top_p = 0.8
         top_k = 40
         repetition_penalty = 1.0
+    
     messages=[{
         'role':
         'user',
@@ -168,6 +177,26 @@ if __name__ == "__main__":
             },
         }],
     }]
+    # image_path = "test_data/Seamoney_MY_PAYSLIP/1986620857220355073.jpg"
+    # base64_image = encode_image_to_base64(image_path)
+
+
+    # messages = [
+    # {'role': 'system', 'content': "You are now in the role of an expert credit reviewer who can identify employee pay slip. \nYou follow instructions precisely and without deviation."},
+    # {
+    #     'role': 'user',
+    #     'content': [
+    #     {
+    #         'type': 'text',
+    #         'text': "逐步思考以检查提供的图片是否是工资单。一个合格的工资单一定要包含用户的薪资信息（如 basic pay / gross pay / net pay / jumlah pendapatan / gaji bersih 之一或几项）等信息\n注意：银行交易转账记录不被视为工资单。\n\n您必须仅以以下结构的JSON模式进行回复。不要添加任何额外的评论。如果上传的图像是工资单，则返回true，否则返回false：\n{\"is_payslip\": true/false}",
+    #     }, {
+    #         'type': 'image_base64',
+    #         'image_base64': {
+    #             'data': base64_image,
+    #         },
+    #     }],
+    # }]
+
     if not args.disable_stream:
         for result in api_client.completions_v1(
             prompt=messages if args.enable_chat else "Hello, Please tell me some details about yourself",

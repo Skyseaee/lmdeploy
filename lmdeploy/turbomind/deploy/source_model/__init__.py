@@ -14,3 +14,4 @@ from .qwen import QwenModel  # noqa: F401
 from .xcomposer2 import Xcomposer2Model  # noqa: F401
 from .compassllvm import CompassLLVM
 from .compass import CompassModel
+from .qwen3_vl import Qwen3VLMoE
