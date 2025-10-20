@@ -10,20 +10,7 @@ from ..config import RopeParam
 from .qwen import Qwen3MoeReader, Qwen3MoeModel
 
 class Qwen3VLMoEReader(Qwen3MoeReader):
-    """CompassLLVMReader for llama model.
-        "lm_head.weight": "model-00013-of-00013.safetensors",
-        "model.language_model.embed_tokens.weight": "model-00001-of-00013.safetensors",
-        "model.language_model.layers.0.input_layernorm.weight": "model-00001-of-00013.safetensors",
-        "model.language_model.layers.0.mlp.experts.down_proj": "model-00001-of-00013.safetensors",
-        "model.language_model.layers.0.mlp.experts.gate_up_proj": "model-00001-of-00013.safetensors",
-        "model.language_model.layers.0.mlp.gate.weight": "model-00001-of-00013.safetensors",
-        "model.language_model.layers.0.post_attention_layernorm.weight": "model-00001-of-00013.safetensors",
-        "model.language_model.layers.0.self_attn.k_norm.weight": "model-00001-of-00013.safetensors",
-        "model.language_model.layers.0.self_attn.k_proj.weight": "model-00001-of-00013.safetensors",
-        "model.language_model.layers.0.self_attn.o_proj.weight": "model-00001-of-00013.safetensors",
-        "model.language_model.layers.0.self_attn.q_norm.weight": "model-00001-of-00013.safetensors",
-        "model.language_model.layers.0.self_attn.q_proj.weight": "model-00001-of-00013.safetensors",
-        "model.language_model.layers.0.self_attn.v_proj.weight": "model-00001-of-00013.safetensors",
+    """Qwen3VLMoEReader for qwen3vl-moe model.
     """
     attn_layer_prefix  = 'model.language_model.layers'
     attn_layer_patten = r'model.language_model.layers.([0-9]+).'
@@ -66,7 +53,6 @@ class Qwen3VLMoEReader(Qwen3MoeReader):
 
     def moe_ffn_gate(self, i):
         t = self.transform(self.params.get(f'model.language_model.layers.{i}.mlp.gate.weight'), 'weight')
-        print(t.shape)
         return t
 
 

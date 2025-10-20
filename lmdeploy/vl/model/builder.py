@@ -7,7 +7,7 @@ import torch
 from lmdeploy.archs import get_model_arch
 from lmdeploy.messages import PytorchEngineConfig, TurbomindEngineConfig
 from lmdeploy.utils import get_logger, get_model
-from lmdeploy.vl.model.base import VISION_MODELS
+from lmdeploy.vl.model.base import VISION_MODELS, DEFAULT_DEVICE
 
 from .cogvlm import CogVLMVisionModel  # noqa F401
 from .deepseek import DeepSeekVisionModel  # noqa F401
@@ -52,7 +52,7 @@ def load_vl_model(model_path: str,
                   backend: str,
                   with_llm: bool = False,
                   backend_config: Optional[Union[TurbomindEngineConfig, PytorchEngineConfig]] = None,
-                  default_device="auto"):
+                  default_device=DEFAULT_DEVICE):
     """Load visual model.
 
     Args:

@@ -11,8 +11,7 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 import torch
-import torch.nn.functional as F
-from transformers import AutoConfig
+import transformers
 
 from lmdeploy.vl.model.base import VISION_MODELS, VisonModel
 from lmdeploy.vl.model.utils import disable_logging
@@ -24,6 +23,8 @@ logger = get_logger('lmdeploy')
 
 def check_qwen3_vl_deps_install():
     """check qwen_vl_utils."""
+    if transformers.__version__ < '4.57.0':
+        raise ImportError('please install transformers>= 4.57.0')
     try:
         import qwen_vl_utils  # noqa: F401
     except ImportError:
@@ -130,7 +131,7 @@ class Qwen3VLModel(VisonModel):
         image_tokens = image_inputs["image_tokens"]
         
         image_embeds, deepstack_feats = self.model.visual(pixel_values, grid_thw=image_grid_thw)
-        logger.info(f"vision_encoder: pixel_values: {list(pixel_values.shape)}, image_embeds:{list(image_embeds.shape)}, deepstack_feats: {len(deepstack_feats)}x{deepstack_feats.shape}")
+        logger.info(f"vision_encoder: pixel_values: {list(pixel_values.shape)}, image_embeds:{list(image_embeds.shape)}, deepstack_feats: {len(deepstack_feats)}x{deepstack_feats[0].shape}")
         image_embeds = image_embeds.split(image_tokens.tolist())
         for i, embeddings in enumerate(image_embeds):
             outputs.append(

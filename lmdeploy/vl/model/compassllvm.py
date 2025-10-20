@@ -146,16 +146,6 @@ class _VLImageEncoder(torch.nn.Module):
 @VISION_MODELS.register_module()
 class CompassVisionModel(VisonModel):
     _arch = 'CompassLLVM'
-    # def __init__(self,
-    #              model_path: str,
-    #              with_llm: bool = False,
-    #              max_memory: Dict[int, int] = None,
-    #              hf_config: AutoConfig = None,
-    #              backend: str = '',
-    #              default_device="auto"):
-    #     super().__init__(model_path, with_llm, max_memory, hf_config, backend)
-    #     """init."""
-    #     self.default_device = default_device
 
     @classmethod
     def match(cls, config: AutoConfig):

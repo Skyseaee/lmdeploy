@@ -208,24 +208,25 @@ class MoeFfn(Ffn):
     def apply(self, i: int, r: BaseReader):
         if self.expert_num[i] == 0:
             return
-
-        for p in get_params(r.moe_ffn_expert(), model_format=self.model_format, quant_algo=self.quant_algo):
-            for e in range(self.expert_num[i] * self.ep):
-                fmt = self._moe_ffn_expert.replace('E', str(e))
-
-                if self.model_format == 'fp8' and self.quant_algo == 'fp8_static':
-                    p(partial(self._export_fp8, fmt), partial(r.moe_ffn_expert, e, i),
-                      i, module_type='ffn')
-                else:
-                    p(partial(self._export, self.inter_size, fmt),
-                      partial(r.moe_ffn_expert, e, i), i)
         # for merged moe ffn expert, only support fp16 now
-        for p in get_mergedmoe_params(r.merged_moe_ffn_expert(), model_format=self.model_format, quant_algo=self.quant_algo):
-            for e in range(self.expert_num[i] * self.ep):
-                fmt = self._moe_ffn_expert.replace('E', str(e))
-                p(f=partial(self._export_merged, self.inter_size, fmt), 
-                  g=partial(r.merged_moe_ffn_expert, e, i, self.expert_num[i]), 
-                  i=i)
+        if hasattr(r, 'merged_moe_ffn_expert'):
+            for p in get_mergedmoe_params(r.merged_moe_ffn_expert(), model_format=self.model_format, quant_algo=self.quant_algo):
+                for e in range(self.expert_num[i] * self.ep):
+                    fmt = self._moe_ffn_expert.replace('E', str(e))
+                    p(f=partial(self._export_merged, self.inter_size, fmt), 
+                    g=partial(r.merged_moe_ffn_expert, e, i, self.expert_num[i]), 
+                    i=i)
+        else:
+            for p in get_params(r.moe_ffn_expert(), model_format=self.model_format, quant_algo=self.quant_algo):
+                for e in range(self.expert_num[i] * self.ep):
+                    fmt = self._moe_ffn_expert.replace('E', str(e))
+
+                    if self.model_format == 'fp8' and self.quant_algo == 'fp8_static':
+                        p(partial(self._export_fp8, fmt), partial(r.moe_ffn_expert, e, i),
+                        i, module_type='ffn')
+                    else:
+                        p(partial(self._export, self.inter_size, fmt),
+                        partial(r.moe_ffn_expert, e, i), i)
 
         gate = transpose(r.moe_ffn_gate(i))
         self.model.save_split(gate, self._moe_ffn_gate.format(i))
@@ -472,9 +473,6 @@ class Transformer:
         if model.model_config.inter_size:
             modules.append(Ffn)
         if model.model_config.expert_num:
-            # if model.model_config.model_arch == "Qwen3VLMoeForConditionalGeneration":
-            #     modules.append(MergedMoeFfn)
-            # else:
             modules.append(MoeFfn)
         self.modules = [c(model) for c in modules]
         self.misc = Misc(model)

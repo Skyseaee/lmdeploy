@@ -9,7 +9,7 @@ import torch
 from lmdeploy.messages import PytorchEngineConfig, TurbomindEngineConfig, VisionConfig
 from lmdeploy.utils import get_logger
 from lmdeploy.vl.model.builder import load_vl_model
-
+from lmdeploy.vl.model.base import DEFAULT_DEVICE
 
 logger = get_logger('lmdeploy')
 
@@ -25,8 +25,8 @@ def _raise_exception_on_finish(task: asyncio.Task) -> None:
 
 def _default_device(tp, num_encoders, i):
     if tp == 1 or num_encoders == 1:
-        logger.info(f"vision_encoder[{i}]: auto")
-        return 'auto'
+        logger.info(f"vision_encoder[{i}]: {DEFAULT_DEVICE}")
+        return DEFAULT_DEVICE
     else:
         step = max(tp // num_encoders, 1)
         gpu_id = (i*step)% tp
