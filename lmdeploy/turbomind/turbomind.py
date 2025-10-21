@@ -524,7 +524,7 @@ def _get_logprobs(outputs, output_logprobs: int):
 
     logprobs = []
 
-    def _func(out: EngineOutput, step: int):
+    def _func(out: EngineOutput, step: int, **kwargs):
         _get_logprobs_impl(logprob_vals, logprob_idxs, logprob_nums, out.token_ids, output_logprobs, logprobs)
         out.logprobs = logprobs
 
