@@ -12,6 +12,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 import torch
 import torch.nn.functional as F
+from transformers import AutoConfig
 
 from lmdeploy.vl.model.base import VISION_MODELS, VisonModel
 from lmdeploy.vl.model.utils import disable_logging
@@ -241,7 +242,8 @@ class Qwen2d5VLModel(VisonModel):
             else:
                 self.hf_config.torch_dtype = device_default_half_type()
         
-        from transformers import Qwen2_5_VLForConditionalGeneration
+        from lmdeploy.vl.model.onepiece.qwen2_5_vl import Qwen2_5_VLForConditionalGeneration
+        #from transformers import Qwen2_5_VLForConditionalGeneration
         if self.hf_config.tie_word_embeddings and self.with_llm:
             model = Qwen2_5_VLForConditionalGeneration._from_config(self.hf_config, 
                                                                     torch_dtype=self.hf_config.torch_dtype, 

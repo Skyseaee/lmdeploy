@@ -130,8 +130,10 @@ def is_supported(model_path: str):
                 llm_arch = cfg.text_config.architectures[0]
                 if llm_arch in ['Qwen2ForCausalLM', 'LlamaForCausalLM']:
                     support_by_turbomind = _is_head_dim_supported(cfg.text_config)
-            elif arch in ["Qwen2_5_VLForConditionalGeneration", "Qwen3VLMoeForConditionalGeneration"]:
+            elif arch in ["Qwen2_5_VLForConditionalGeneration"]:
                 support_by_turbomind =  _is_head_dim_supported(cfg)
+            elif arch in ["Qwen3VLMoeForConditionalGeneration"]:
+                support_by_turbomind =  _is_head_dim_supported(cfg.text_config)
             elif arch == 'MolmoForCausalLM':
                 kv_heads = cfg.num_key_value_heads
                 # TM hasn't supported allenai/Molmo-7B-O-0924 yet
