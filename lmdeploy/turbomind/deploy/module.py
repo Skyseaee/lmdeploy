@@ -8,7 +8,7 @@ import torch
 from lmdeploy.utils import get_logger
 logger = get_logger('lmdeploy')
 
-from .parameter import get_params
+from .parameter import get_params, get_mergedmoe_params
 from .source_model.base import BaseReader
 from .target_model.base import BaseOutputModel
 from .parameter import QuantWeightFP8
@@ -50,7 +50,7 @@ def transpose(x):
 
 def pad_out_dims(x: torch.Tensor, dims: int):
     pad = dims - x.size(-1)
-    assert pad >= 0
+    assert pad >= 0, f"pad={pad}, dims={dims}, x.size(-1)={x.size(-1)}"
     return torch.nn.functional.pad(x, (0, pad), 'constant', 0)
 
 
@@ -159,6 +159,23 @@ class Ffn(Module):
                               split_num=self.tp,
                               copy=copy)
 
+    def _export_merged(self,
+                inter_size: int,
+                fmt: str,
+                idx: int,
+                w123,
+                kind: str,
+                pack_fn,
+                apply_gs=False,
+                block_size=1,
+                **kwargs):
+        w1, w2, w3 = w123
+        w1, w2, w3 = map(pack_fn, (w1, w2, w3))
+
+        self.model.save_split(w1, fmt.format(idx, 'w1', kind), split_dim=-1, split_num=self.tp)
+        self.model.save_split(w3, fmt.format(idx, 'w3', kind), split_dim=-1, split_num=self.tp)
+        self.model.save_split(w2, fmt.format(idx, 'w2', kind), split_dim=0, split_num=self.tp)
+
     def apply(self, i: int, r: BaseReader):
         for e in get_params(r.ffn(i, None), model_format=self.model_format, quant_algo=self.quant_algo):
             if self.model_format == 'fp8' and self.quant_algo == 'fp8_static':
@@ -191,16 +208,25 @@ class MoeFfn(Ffn):
     def apply(self, i: int, r: BaseReader):
         if self.expert_num[i] == 0:
             return
-        for p in get_params(r.moe_ffn_expert(), model_format=self.model_format, quant_algo=self.quant_algo):
-            for e in range(self.expert_num[i] * self.ep):
-                fmt = self._moe_ffn_expert.replace('E', str(e))
+        # for merged moe ffn expert, only support fp16 now
+        if hasattr(r, 'merged_moe_ffn_expert'):
+            for p in get_mergedmoe_params(r.merged_moe_ffn_expert(), model_format=self.model_format, quant_algo=self.quant_algo):
+                for e in range(self.expert_num[i] * self.ep):
+                    fmt = self._moe_ffn_expert.replace('E', str(e))
+                    p(f=partial(self._export_merged, self.inter_size, fmt), 
+                    g=partial(r.merged_moe_ffn_expert, e, i, self.expert_num[i]), 
+                    i=i)
+        else:
+            for p in get_params(r.moe_ffn_expert(), model_format=self.model_format, quant_algo=self.quant_algo):
+                for e in range(self.expert_num[i] * self.ep):
+                    fmt = self._moe_ffn_expert.replace('E', str(e))
 
-                if self.model_format == 'fp8' and self.quant_algo == 'fp8_static':
-                    p(partial(self._export_fp8, fmt), partial(r.moe_ffn_expert, e, i),
-                      i, module_type='ffn')
-                else:
-                    p(partial(self._export, self.inter_size, fmt),
-                      partial(r.moe_ffn_expert, e, i), i)
+                    if self.model_format == 'fp8' and self.quant_algo == 'fp8_static':
+                        p(partial(self._export_fp8, fmt), partial(r.moe_ffn_expert, e, i),
+                        i, module_type='ffn')
+                    else:
+                        p(partial(self._export, self.inter_size, fmt),
+                        partial(r.moe_ffn_expert, e, i), i)
 
         gate = transpose(r.moe_ffn_gate(i))
         self.model.save_split(gate, self._moe_ffn_gate.format(i))

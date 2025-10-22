@@ -204,6 +204,12 @@ class PLora(Parameter):
         f(i, g('Plora_B.weight'), 'lora_b.weight', identity)
 
 
+class MergedMoeParameter(Parameter):
+    KEYS = 'experts.down_proj', 'experts.gate_up_proj'
+    def __call__(self, f, g, i):
+        # inter_size: int, fmt: str, idx: int, w123, kind: str
+        f(i, g(), 'weight', identity)
+
 def get_params(keys: List[str], bias=0, model_format=None, quant_algo=None):
     ps = []
     if PLora.take(keys):
@@ -218,6 +224,25 @@ def get_params(keys: List[str], bias=0, model_format=None, quant_algo=None):
         ps.append(WeightScaleInv())
     if Weight.take(keys):
         ps.append(Weight())
+    if bias and Bias.take(keys):
+        ps.append(Bias())
+    return ps
+
+def get_mergedmoe_params(keys: List[str], bias=0, model_format=None, quant_algo=None):
+    ps = []
+    if PLora.take(keys):
+        ps.append(PLora())
+    if model_format == 'fp8' and quant_algo == 'fp8_static':
+        if QuantWeightFP8.take(keys):
+            ps.append(QuantWeightFP8())
+    else:
+        if QuantWeightOnly.take(keys):
+            ps.append(QuantWeightOnly())
+    if WeightScaleInv.take(keys):
+        ps.append(WeightScaleInv())
+
+    if MergedMoeParameter.take(keys):
+        ps.append(MergedMoeParameter())
     if bias and Bias.take(keys):
         ps.append(Bias())
     return ps

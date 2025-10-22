@@ -3,13 +3,16 @@ from abc import ABC, abstractmethod
 from typing import Dict, List, Union
 
 import numpy as np
+import torch
 from mmengine import Registry
+import transformers
 from transformers import AutoConfig, AutoTokenizer
 
 from lmdeploy.archs import get_model_arch
 
 VISION_MODELS = Registry('vision_model')
 
+DEFAULT_DEVICE = 'auto' if transformers.__version__ < '4.52.0' else {'': 'cuda'} if torch.cuda.is_available() else {'': 'cpu'}
 
 class VisonModel(ABC):
     """Visual model which extract image feature."""
@@ -21,7 +24,7 @@ class VisonModel(ABC):
                  max_memory: Dict[int, int] = None,
                  hf_config: AutoConfig = None,
                  backend: str = '',
-                 default_device='auto'):
+                 default_device=DEFAULT_DEVICE):
         """init."""
         self.model_path = model_path
         self.with_llm = with_llm
