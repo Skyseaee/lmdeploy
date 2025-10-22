@@ -70,6 +70,10 @@ def finegrained_fp8(model: str,
                 quantization_config=quant_config,
                 trust_remote_code=True
             )
+            # save processor config
+            from transformers import AutoProcessor
+            processor = AutoProcessor.from_pretrained(model_path)
+            processor.save_pretrained(work_dir)
         else:
             try:
                 quantized_model = AutoModelForCausalLM.from_pretrained(
