@@ -74,7 +74,8 @@ class BaseLogitsProcessor:
         return tokenizer
 
 
-class RegexLogitsProcessor(BaseLogitsProcessor):
+class GuidedDecodingManager:
+    processors = {}
 
     def __init__(self, regex_string: str, tokenizer):
         """Compile the FSM that drives the regex-structured generation.

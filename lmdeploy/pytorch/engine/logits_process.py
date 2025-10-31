@@ -10,6 +10,7 @@ from lmdeploy.messages import LogitsProcessor
 from lmdeploy.tokenizer import Tokenizer
 
 from ..messages import SchedulerSequence
+from .guided_process import GuidedDecodingManager
 
 
 def _process_temperature_(scores: torch.Tensor, temperature: torch.Tensor):
@@ -276,15 +277,23 @@ def _apply_custom_logits_processors(batched_logits_processors, all_ids, logits):
 class FusedLogitsProcessor:
     """Custom logits processor."""
 
-    def __init__(self,
-                 sampling_inputs: SamplingInputs,
-                 ignore_eos: torch.Tensor,
-                 tokenizer: Optional[Tokenizer] = None,
-                 sampling_vocab_size: Optional[int] = None):
+    def __init__(
+        self,
+        sampling_inputs: SamplingInputs,
+        logprobs_mode: Optional[str] = None,
+        guided_decoding_manager: Optional[GuidedDecodingManager] = None,
+    ):
         self.sampling_inputs: SamplingInputs = sampling_inputs
-        self.ignore_eos = ignore_eos
-        self.tokenizer = tokenizer
-        self.sampling_vocab_size = sampling_vocab_size
+        self.logprobs_mode = logprobs_mode
+        self.guided_decoding_manager = guided_decoding_manager
+        if sampling_inputs.session_to_cleanup:
+            self.cleanup_sessions(sampling_inputs.session_to_cleanup)
+
+        if self.guided_decoding_manager:
+            self.guided_processors = self.guided_decoding_manager.get_processors(sampling_inputs.session_ctx,
+                                                                                 sampling_inputs.response_formats)
+        else:
+            self.guided_processors = {}
 
     async def _wait_stream_once(self):
         """Wait stream once."""
@@ -370,9 +379,6 @@ class FusedLogitsProcessor:
             seeds = sampling_inputs.random_seeds
             offsets = sampling_inputs.random_offsets
             return _multinomial_sampling(softmax_scores, seeds, offsets, indices)
-
-        if self.sampling_vocab_size is not None and logits.size(1) > self.sampling_vocab_size:
-            logits = logits[..., :self.sampling_vocab_size]
 
         if sampling_inputs.max_top_k == 1:
             return logits.argmax(-1)
