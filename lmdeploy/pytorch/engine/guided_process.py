@@ -88,19 +88,33 @@ class GuidedDecodingManager:
         fsm = RegexGuide(regex_string, tokenizer)
         self.fsm = fsm
 
+    def get_processors(self, session_ctx: List[Dict[str, Any]],
+                       response_formats: Tuple[Dict]) -> Dict[int, xgr.GrammarMatcher]:
+        processors = {}
+        for i, _format in enumerate(response_formats):
+            if isinstance(_format, Dict) and _format.get('type', 'text') != 'text':
+                schema_type = _format['type']
+                if schema_type == 'json_schema':
+                    schema = _format['json_schema']
+                    if isinstance(schema, Dict):
+                        for key in ['json_schema', 'schema']:
+                            if key in schema:
+                                schema = json.dumps(schema[key], ensure_ascii=False)
 
-class JSONLogitsProcessor(RegexLogitsProcessor):
+                    if not isinstance(schema, str):
+                        raise ValueError(f'Cannot parse schema {schema}. The schema must be '
+                                         'either a dictionary or a string that contains the'
+                                         ' JSON Schema specification')
+                elif schema_type == 'regex_schema':
+                    schema = _format.get('regex_schema', '')
+                elif schema_type == 'json_object':
+                    schema = '{"type" : "object", "additionalProperties": true}'
+                else:
+                    raise ValueError(f'unsupported format type: {schema_type}')
 
-    def __init__(self, schema: Union[str, Dict, BaseModel], tokenizer):
-        """Compile the FSM that drives the JSON-guided generation.
-
-        Args:
-            schema: A str schema that encodes the structure we want the model
-                to generate
-            tokenizer: The model's tokenizer
-        """
-        regex_string = build_regex_from_schema(schema)
-        super().__init__(regex_string, tokenizer)
+                session_id = session_ctx[i]['session_id']
+                seq_id = session_ctx[i]['seq_id']
+                processors[i] = self.get_processor(session_id, seq_id, schema, schema_type)
 
 
 class CFGLogitsProcessor(BaseLogitsProcessor):
@@ -152,7 +166,9 @@ def _get_guided_logits_processor(guide: str, tokenizer: PreTrainedTokenizerBase,
         elif type == 'json_schema':
             return JSONLogitsProcessor(guide, tokenizer)
         elif type == 'regex_schema':
-            return RegexLogitsProcessor(guide, tokenizer)
+            compiled = self.compiler.compile_regex(schema)
+        elif type == 'json_object':
+            compiled = self.compiler.compile_json_schema(schema)
         else:
             return None
     except Exception as e:
