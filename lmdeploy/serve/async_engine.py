@@ -37,10 +37,11 @@ logger = get_logger('lmdeploy')
 def get_names_from_model(model_path: str, model_name: str = None):
     """Get model name and chat template name from workspace model."""
     triton_model_path = os.path.join(model_path, 'triton_models', 'weights')
+    chat_template_name = None
     if not os.path.exists(triton_model_path):
         if model_name is not None:
             chat_template_name = best_match_model(model_name)
-        else:
+        if chat_template_name in [None, "base"]:
             chat_template_name = best_match_model(model_path)
     else:
         # `model_path` refers to a turbomind model, reading
@@ -268,6 +269,7 @@ class AsyncEngine(LogitsMixin):
                  chat_template_config: Optional[ChatTemplateConfig] = None,
                  max_log_len: int = None,
                  **kwargs) -> None:
+        logger.info(f'input model_path={model_path}, model_name={model_name}')
         logger.info(f'input backend={backend}, backend_config={backend_config}')
         logger.info(f'input chat_template_config={chat_template_config}')
 

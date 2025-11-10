@@ -2416,7 +2416,7 @@ class CompassLLVMChat(BaseChatTemplate):
                     return "compassllvm"
 
         path = model_path.lower().replace("-", "_")
-        if ("compass" in path and "llvm" in path) or "mllm" in path:
+        if ("compass" in path and "llvm" in path) or "mllm" in path or ("compass" in path and "vl" in path):
             if ("1.6" in path) or ("1d6" in path) or ("1_6"  in path):
                 return "compassllvm-1d6"
             if ("2.0" in path) or ("2_0"  in path):
