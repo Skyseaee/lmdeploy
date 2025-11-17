@@ -2,7 +2,8 @@
 import base64
 import os
 from io import BytesIO
-from typing import Union
+from typing import Union, Optional, Tuple
+from functools import lru_cache
 
 import requests
 from PIL import Image, ImageFile
@@ -49,7 +50,8 @@ def load_image_from_base64(image: Union[bytes, str]) -> Image.Image:
     return Image.open(BytesIO(base64.b64decode(image)))
 
 
-def load_image(image_url: Union[str, Image.Image]) -> Image.Image:
+def load_image(image_url: Union[str, Image.Image],
+               return_bytes: bool = False) -> Union[Image.Image, Tuple[Image.Image, Optional[bytes]]]:
     """Load image from url, local path or openai GPT4V."""
     FETCH_TIMEOUT = int(os.environ.get('LMDEPLOY_FETCH_TIMEOUT', 10))
     headers = {
@@ -57,19 +59,26 @@ def load_image(image_url: Union[str, Image.Image]) -> Image.Image:
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
         '(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
     }
+    raw_bytes = None
     try:
         ImageFile.LOAD_TRUNCATED_IMAGES = True
         if isinstance(image_url, Image.Image):
             img = image_url
+            raw_bytes = None  #PIL.Image对象无原始二进制数据
         elif image_url.startswith('http'):
             response = requests.get(image_url, headers=headers, timeout=FETCH_TIMEOUT)
             response.raise_for_status()
-            img = Image.open(BytesIO(response.content))
+            raw_bytes = response.content #保存原始字节
+            img = Image.open(BytesIO(raw_bytes))
         elif image_url.startswith('data:image'):
-            img = load_image_from_base64(image_url.split(',')[1])
+            base64_str = image_url.split(',')[1]
+            raw_bytes = base64.b64decode(base64_str)  # 保存原始字节
+            img = Image.open(BytesIO(raw_bytes))
         else:
             # Load image from local path
-            img = Image.open(image_url)
+            with open(image_url, 'rb') as f:
+                raw_bytes = f.read()  # 保存原始字节
+            img = Image.open(BytesIO(raw_bytes))  # 使用 BytesIO 避免文件锁
 
         # check image valid
         img = img.convert('RGB')
@@ -80,4 +89,7 @@ def load_image(image_url: Union[str, Image.Image]) -> Image.Image:
         # use dummy image
         img = Image.new('RGB', (32, 32))
 
-    return img
+    if return_bytes:   #return_bytes为True，返回原始字节和PIL.Image对象
+        return img, raw_bytes
+    else:              #return_bytes为False，只返回PIL.Image对象
+        return img
