@@ -18,7 +18,10 @@ logger = get_logger('lmdeploy')
 VLPromptType = Union[str, Tuple[str, PIL.Image.Image], Tuple[str, List[PIL.Image.Image]]]
 
 
-def md5_of_pil_image(image) -> str:
+def md5_of_pil_image(image: PIL.Image.Image, raw_bytes: Optional[bytes] = None) -> str:
+    if raw_bytes is not None:
+        return hashlib.md5(raw_bytes).hexdigest()
+    
     with io.BytesIO() as buffer:
         image.save(buffer, format='PNG')
         img_bytes = buffer.getvalue()
@@ -102,7 +105,10 @@ class VLAsyncEngine(AsyncEngine):
                 for x in content:
                     if x['type'] != 'image': continue
                     if 'hash' not in x:
-                        x.update(hash=md5_of_pil_image(x['image']))
+                        x.update(hash=md5_of_pil_image(x['image'], x.get('raw_bytes')))
+                        # 内存优化：在计算完 MD5编码 后，立即删除存储的原始二进制数据
+                        if 'raw_bytes' in x:
+                            del x['raw_bytes']
                     hash_key = x.get('hash', None)
                     feat = self.embedding_cache.get(hash_key)
                     if feat is not None:
@@ -190,8 +196,8 @@ class VLAsyncEngine(AsyncEngine):
                     data = item['image_url'].copy()
                     try:
                         url = data.pop('url')
-                        image = load_image(url)
-                        data.update(type='image', image=image, cache_hit=False)
+                        image, raw_bytes = load_image(url, return_bytes=True)  # return_bytes设置为True，显式请求返回原始二进制数据
+                        data.update(type='image', image=image, raw_bytes=raw_bytes, cache_hit=False) # 保存原始二进制数据用于 MD5编码 计算，避免重复计算
                         message['content'].append(data)
                     except KeyError:
                         logger.error(f'invalid format {message}')
@@ -217,7 +223,7 @@ class VLAsyncEngine(AsyncEngine):
                     data = item['image_data'].copy()
                     try:
                         image = data.pop('data')
-                        data.update(type='image', image=image, cache_hit=False)
+                        data.update(type='image', image=image, raw_bytes=None, cache_hit=False) # 若是PIL.Image对象，则raw_bytes为None
                         message['content'].append(data)
                     except KeyError:
                         logger.error(f'invalid format {message}')
