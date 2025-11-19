@@ -70,6 +70,7 @@ void BlockTrie::match(Sequence& seq)
 
     if (seq.block_trie_matched) {
         total_blocks_needed = 0; // no need to match more
+        num_hits -= seq.cache_len / block_seq_len_;
     } else {
         seq.block_trie_matched = true;
     }
