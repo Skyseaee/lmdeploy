@@ -356,44 +356,8 @@ test_models:
         service_args:
           common: "--model-format fp8  --quant-policy 32"  # quant-policy 16有精度问题
 
-#################################
-  mllm-1.0.0:
-    model_info:
-      # 如果在model_dir里没找到，就去model_repo下载
-      model_repo:
-        model_id: 37045
-        version_id: 43708
-        project_id: 0  # 默认是0，从official仓库下载
-    service_info:
-      common:
-        # 放一些通用的service参数和测试case
-        service_args:
-          common: ""
-        test_data:
-          - prompt: "Identify the food in the picture."
-            image_url: "https://p7.itc.cn/q_70/images03/20220907/b60149db73c64bd99057ec02c64ef7d4.jpeg"
-            ground_truth:
-              a100: "noodle"
-              h100: "noodle"
-              v100: "noodle"
-            verification: in
-      fp16:
-        target_gpus: ["h100"]  # 必须参数，设置可以在哪些GPU上跑，否则略过这个test case
-      awq-w4a16-kvfp16:
-        target_gpus: ["h100"]
-        service_args:
-          common: "--model-format awq"
-        # 先在model_dir里找，如果找不到就执行量化脚本
-        quantization: "awq-w4a16"
-      fp8-kvfp8:
-        target_gpus: ["h100"]
-        # 先在model_dir里找，如果找不到就执行量化脚本
-        quantization: "fp8"
-        service_args:
-          common: "--model-format fp8 --quant-policy 16"
-
 ##################################
-  mllm-1.6.0:
+  compassvl-1.6.0:
     model_info:
       # 如果在model_dir里没找到，就去model_repo下载
       model_repo:
@@ -439,12 +403,12 @@ test_models:
         service_args:
           common: "--model-format fp8  --quant-policy 16"
 
-  mllm-2.0.0:
+  compassvl-2.0.0:
     model_info:
       # 如果在model_dir里没找到，就去model_repo下载
       model_repo:
         model_id: 36422
-        version_id: 54900
+        version_id: 57894
         project_id: 0  # 默认是0，从official仓库下载
     service_info:
       common:
