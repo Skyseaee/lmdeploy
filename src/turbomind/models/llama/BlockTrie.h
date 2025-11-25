@@ -38,7 +38,7 @@ public:
      *
      * @note If no blocks are matched, all containers in the returned tuple will be empty.
      */
-    std::tuple<BlockIds, UniqueIds> Match(const Sequence& seq);
+    std::tuple<BlockIds, UniqueIds> Match(Sequence& seq);
 
     /**
      * @brief Cache the key-value (KV) blocks of a given sequence.

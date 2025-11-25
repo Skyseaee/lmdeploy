@@ -24,7 +24,7 @@ BlockTrie::BlockTrie(size_t block_len, std::shared_ptr<BlockManager> block_manag
     }
 }
 
-std::tuple<BlockIds, UniqueIds> BlockTrie::Match(const Sequence& seq)
+std::tuple<BlockIds, UniqueIds> BlockTrie::Match(Sequence& seq)
 {
     BlockIds  matched_blocks;
     UniqueIds matched_unique_ids;
