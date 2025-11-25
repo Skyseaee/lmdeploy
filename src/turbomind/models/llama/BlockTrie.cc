@@ -18,10 +18,8 @@ BlockTrie::BlockTrie(size_t block_len, std::shared_ptr<BlockManager> block_manag
     block_seq_len_(block_len), block_manager_(block_manager)
 {
     root_ = std::make_shared<TrieNode>();
-    if (enable_prefix_caching_) {
-        prefix_caching_metrics_ = std::make_shared<PrefixCachingMetrics>(1000);
-        prefix_cache_stats_ = std::make_shared<PrefixCacheStats>(0, 0, 0, false);
-    }
+    prefix_caching_metrics_ = std::make_shared<PrefixCachingMetrics>(1000);
+    prefix_cache_stats_ = std::make_shared<PrefixCacheStats>(0, 0, 0, false);
 }
 
 std::tuple<BlockIds, UniqueIds> BlockTrie::Match(Sequence& seq)
