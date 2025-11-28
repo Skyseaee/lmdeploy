@@ -104,8 +104,11 @@ def is_flash_attn_2_available(install_dependencies: bool = False) -> bool:
 
     if not _is_package_available("flash_attn"):
         if install_dependencies:
-            os.system(f"{sys.executable} -m pip install flash_attn==2.8.0.post2")
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+            # Install flash_attn with --no-build-isolation to use torch from current environment
+            install_result = os.system(f"{sys.executable} -m pip install --no-build-isolation flash_attn==2.8.0.post2")
+            # Only restart if installation succeeded (exit code 0)
+            if install_result == 0 and _is_package_available("flash_attn"):
+                os.execv(sys.executable, [sys.executable] + sys.argv)
             if not _is_package_available("flash_attn"):
                 return False
         else:
