@@ -1465,8 +1465,12 @@ def serve(model_path: str,
         )
 
     # set the maximum number of concurrent requests
-    if max_concurrent_requests is not None:
-        app.add_middleware(ConcurrencyLimitMiddleware, max_concurrent_requests=max_concurrent_requests)
+    if max_concurrent_requests is None:
+        # Use max_batch_size from backend_config directly (multiplier=2.5)
+        max_batch_size = VariableInterface.async_engine.backend_config.max_batch_size
+        max_concurrent_requests = int(max_batch_size * 2.5)
+        logger.info(f'Auto-set max_concurrent_requests to {max_concurrent_requests} (max_batch_size={max_batch_size})')
+    app.add_middleware(ConcurrencyLimitMiddleware, max_concurrent_requests=max_concurrent_requests)
 
     if proxy_url is not None:
         VariableInterface.proxy_url = proxy_url

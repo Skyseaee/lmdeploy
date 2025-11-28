@@ -95,6 +95,7 @@ def server_http(config_path: str):
     config_dict["max_batch_size"] = config['predictors'][0].get("max-batch-size", 128)
     config_dict["vision_max_batch_size"] = config['predictors'][0].get("vision-max-batch-size", 1)
     session_len = config['predictors'][0].get("session-len", None)
+    max_concurrent_requests = config['predictors'][0].get("max-concurrent-requests", None)
     config_dict["enable_prefix_caching"] = config['predictors'][0].get("enable-prefix-caching", True)
     config_dict["enable_metrics"] = config['predictors'][0].get("enable-metrics", True)
     config_dict["max_log_len"] = config['predictors'][0].get("max-log-len", 1024)
@@ -148,6 +149,7 @@ def server_http(config_path: str):
     handle_env_arg("ONELLM_SESSION_LEN",      "--session-len",      session_len)
     handle_env_arg("ONELLM_REASONING_PARSER", "--reasoning-parser", reasoning_parser)
     handle_env_arg("ONELLM_TOOL_CALL_PARSER", "--tool-call-parser", tool_call_parser)
+    handle_env_arg("ONELLM_MAX_CONCURRENT_REQUESTS", "--max-concurrent-requests", max_concurrent_requests)
 
     server_args = SubCliServe.parser.parse_args(args_list)
 
