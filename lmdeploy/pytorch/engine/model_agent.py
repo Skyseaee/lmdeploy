@@ -25,7 +25,6 @@ from ..models.patch import add_adapters, build_patched_model, update_custom_modu
 from ..utils import get_gpu_memory
 from ..weight_loader.model_weight_loader import load_model_weights
 from .cache_engine import CacheEngine
-from .guided_process import GuidedDecodingManager
 from .logits_process import FusedLogitsProcessor, SamplingInputs
 
 logger = get_logger('lmdeploy')
@@ -238,8 +237,11 @@ class BaseModelAgent:
 
         self.model_config = model_config
         self.cache_config = cache_config
-        # use raw tokenizer
-        self.tokenizer = Tokenizer(model_path).model.model
+        self.tokenizer = tokenizer
+        try:
+            self.sampling_vocab_size = len(tokenizer)
+        except BaseException:
+            self.sampling_vocab_size = None
 
         self._pre_in_que = None
         self._in_que = None
@@ -273,11 +275,6 @@ class BaseModelAgent:
         self.patched_model = None
         self.cache_engine = None
         self.profiler: AgentProfiler = None
-        try:
-            self.guided_decoding_manager = GuidedDecodingManager(self.tokenizer, model_config.vocab_size)
-        except ValueError as e:
-            logger.warning(f'Failed to create GuidedManager for tokenizer {type(self.tokenizer)}: {e}')
-            self.guided_decoding_manager = None
 
         # microbatch
         self.enable_microbatch = self.dist_ctx.dist_config.enable_microbatch
@@ -451,13 +448,12 @@ class BaseModelAgent:
         # record function does not support async function
         # so we can not decorate it on async_sampling_logits
         with record_function('sampling_logits'):
-            logits_processor = FusedLogitsProcessor(
-                sampling_inputs,
-                logprobs_mode=self.misc_config.logprobs_mode,
-                guided_decoding_manager=self.guided_decoding_manager,
-            )
-            origin_logits = logits
-            logits, raw_logprobs = await logits_processor(origin_logits)
+            split_logits = __get_last_logits()
+            logits_processor = FusedLogitsProcessor(sampling_inputs,
+                                                    ignore_eos,
+                                                    self.tokenizer,
+                                                    sampling_vocab_size=self.sampling_vocab_size)
+            logits = await logits_processor(all_ids, guided_input_ids, split_logits)
             next_token_ids = logits_processor.sampling(logits)
 
         return next_token_ids
@@ -756,9 +752,6 @@ class BaseModelAgent:
             if not self._preprocess_task.done():
                 self._preprocess_task.cancel()
 
-        if self.guided_decoding_manager:
-            self.guided_decoding_manager.clear()
-
     async def stop_async(self):
         """Stop task."""
         if self.dist_ctx.dp > 1:
@@ -786,9 +779,6 @@ class BaseModelAgent:
                     await self._preprocess_task
                 except asyncio.CancelledError:
                     logger.debug('ModelAgent preprocess task cancelled.')
-
-        if self.guided_decoding_manager:
-            self.guided_decoding_manager.clear()
 
     def set_forward_inputs(self, inputs):
         """Set forward inputs."""
