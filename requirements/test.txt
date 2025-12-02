@@ -9,3 +9,4 @@ pytest-rerunfailures
 pytest-sugar
 pytest-xdist
 pyyaml
+pytest-asyncio

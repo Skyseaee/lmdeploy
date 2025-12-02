@@ -365,7 +365,7 @@ class AsyncEngine(LogitsMixin):
         self.engine = Engine.from_pretrained(model_path, tokenizer=self.tokenizer, engine_config=backend_config)
         self.backend_config = self.engine.engine_config
         self.hf_tm_cfg = getattr(self.engine.model_config, 'hf_config', None)
-    
+
     def _build_stat_loggers(self):
         self.stat_loggers = []
 
@@ -381,7 +381,7 @@ class AsyncEngine(LogitsMixin):
 
             # set stats loggers of metrics processor
             metrics_processor.stat_loggers = self.stat_loggers
-    
+
     def get_schedule_metrics(self):
         return self.engine.get_schedule_metrics()
 
@@ -418,7 +418,7 @@ class AsyncEngine(LogitsMixin):
                                 use_tqdm=use_tqdm,
                                 input_ids=input_ids,
                                 **kwargs)
-    
+
     async def do_log_stats(self):
         """Loop through CLI logger and Prometheus logger and output the
         metrics."""
@@ -660,7 +660,7 @@ class AsyncEngine(LogitsMixin):
         return {'prompt': prompt, 'input_ids': input_ids}
 
     @asynccontextmanager
-    async def model_inst(self, session_id: int):
+    async def model_inst(self, session_id: int, traceid=None):
         """A context manager to make sure server's safe running."""
         assert session_id not in self.id2inst
         free_insts = self._get_free_insts()
@@ -670,7 +670,7 @@ class AsyncEngine(LogitsMixin):
         try:
             yield inst
         except (Exception, asyncio.CancelledError, GeneratorExit) as e:
-            logger.error(f'[model_inst] exception caught: {e}')
+            logger.error(f'[model_inst] traceid: {traceid}, session_id: {session_id}, exception caught: {e}')
             if self.backend == 'pytorch':
                 # manually end pytorch session
                 await inst.async_end(session_id)
@@ -680,12 +680,12 @@ class AsyncEngine(LogitsMixin):
             free_insts.put_nowait(inst)
 
     @asynccontextmanager
-    async def safe_run(self, inst, session_id, **kwargs):
+    async def safe_run(self, inst, session_id, traceid=None, **kwargs):
         generator = inst.async_stream_infer(session_id, **kwargs)
         try:
             yield generator
         except (Exception, asyncio.CancelledError, GeneratorExit) as e:  # noqa
-            logger.error(f'[safe_run] exception caught: {type(e).__name__} {e}')
+            logger.error(f'[safe_run] traceid: {traceid}, session_id: {session_id}, exception caught: {type(e).__name__} {e}')
             # TODO: remove session_id from async cancel
             await inst.async_cancel(session_id)
             raise e
@@ -871,7 +871,7 @@ class AsyncEngine(LogitsMixin):
             stop_ids = gen_config.stop_token_ids or []
 
         metrics_processor.increment_total_requests()
-        async with self.model_inst(session_id) as inst:
+        async with self.model_inst(session_id, traceid=traceid) as inst:
             token_ids = input_ids.copy()
             history_len = self.id2step[session_id]
             input_len = len(input_ids)
@@ -881,115 +881,134 @@ class AsyncEngine(LogitsMixin):
             hit_stop_word = False
             response = ''
             finish_reason = None
-            async with self.safe_run(inst,
-                                     session_id=session_id,
-                                     **prompt_input,
-                                     gen_config=gen_config,
-                                     adapter_name=adapter_name,
-                                     stream_output=stream_response,
-                                     sequence_start=sequence_start,
-                                     sequence_end=sequence_end,
-                                     step=history_len) as gen:
-                prev_len = 0
-                hit_stop_token = 0
-                req_state = RequestState(prompt_tokens=input_len)  # per-requst state
-                async for outputs in gen:
-                    iteration_stats = IterationStats()  # per-iteration stats
-                    metrics_processor.queue_update((outputs, req_state, iteration_stats))
-                    # decode res
-                    if is_error(outputs.status):
-                        break
+            try:
+                async with self.safe_run(inst,
+                                         session_id=session_id,
+                                         traceid=traceid,
+                                         **prompt_input,
+                                         gen_config=gen_config,
+                                         adapter_name=adapter_name,
+                                         stream_output=stream_response,
+                                         sequence_start=sequence_start,
+                                         sequence_end=sequence_end,
+                                         step=history_len) as gen:
+                    prev_len = 0
+                    hit_stop_token = 0
+                    req_state = RequestState(prompt_tokens=input_len)  # per-requst state
+                    async for outputs in gen:
+                        iteration_stats = IterationStats()  # per-iteration stats
+                        metrics_processor.queue_update((outputs, req_state, iteration_stats))
+                        # decode res
+                        if is_error(outputs.status):
+                            break
 
-                    output_len = outputs.num_token
+                        output_len = outputs.num_token
 
-                    if hit_stop_token or prev_len == output_len:
-                        continue
-
-                    # This assumes the engine will stop when stop token is hit
-                    if output_len and outputs.token_ids[-1] in stop_ids:
-                        hit_stop_token = 1
-                        # Compatible with old logic
-                        finish_reason = 'end' if outputs.token_ids[-1] == self.tokenizer.eos_token_id else 'stop'
-                        # one token and it's been skipped
-                        if output_len == prev_len + 1:
+                        if hit_stop_token or prev_len == output_len:
                             continue
 
-                    mask = slice(prev_len - output_len, output_len - hit_stop_token)
+                        # This assumes the engine will stop when stop token is hit
+                        if output_len and outputs.token_ids[-1] in stop_ids:
+                            hit_stop_token = 1
+                            # Compatible with old logic
+                            finish_reason = 'end' if outputs.token_ids[-1] == self.tokenizer.eos_token_id else 'stop'
+                            # one token and it's been skipped
+                            if output_len == prev_len + 1:
+                                continue
 
-                    token_ids += outputs.token_ids[mask]
-                    gen_len = len(token_ids) - input_len
+                        mask = slice(prev_len - output_len, output_len - hit_stop_token)
 
-                    prev_len = output_len
+                        token_ids += outputs.token_ids[mask]
+                        gen_len = len(token_ids) - input_len
 
-                    ids_offset = state.ids_offset
-                    response, state = self.tokenizer.detokenize_incrementally(
-                        token_ids,
-                        state,
-                        skip_special_tokens=gen_config.skip_special_tokens,
-                        spaces_between_special_tokens=gen_config.spaces_between_special_tokens)
-                    res = token_ids[ids_offset:]
-                    # _check_stop_strings
-                    if gen_config.stop_words is not None:
-                        response, hit_stop_word = self._check_stop_strings(response, gen_config.stop_words)
-                    out = GenOut(response,
-                                 history_len,
-                                 input_len,
-                                 gen_len,
-                                 finish_reason,
-                                 token_ids=res,
-                                 cache_block_ids=outputs.cache_block_ids,
-                                 cost_time=(time.time() - start_time) * 1000)
+                        prev_len = output_len
 
-                    if outputs.logprobs is not None:
-                        log_offset = ids_offset - start_ids_offset
-                        out.logprobs = outputs.logprobs[log_offset:]
-                    if outputs.last_hidden_state is not None:
-                        out.last_hidden_state = outputs.last_hidden_state
-                        if hit_stop_token:
-                            out.last_hidden_state = \
-                                out.last_hidden_state[:-hit_stop_token]
-                    if outputs.logits is not None:
-                        out.logits = outputs.logits
-                        if hit_stop_token:
-                            out.logits = out.logits[:-hit_stop_token]
+                        ids_offset = state.ids_offset
+                        response, state = self.tokenizer.detokenize_incrementally(
+                            token_ids,
+                            state,
+                            skip_special_tokens=gen_config.skip_special_tokens,
+                            spaces_between_special_tokens=gen_config.spaces_between_special_tokens)
+                        res = token_ids[ids_offset:]
+                        # _check_stop_strings
+                        if gen_config.stop_words is not None:
+                            response, hit_stop_word = self._check_stop_strings(response, gen_config.stop_words)
+                        out = GenOut(response,
+                                     history_len,
+                                     input_len,
+                                     gen_len,
+                                     finish_reason,
+                                     token_ids=res,
+                                     cache_block_ids=outputs.cache_block_ids,
+                                     cost_time=(time.time() - start_time) * 1000)
 
-                    yield out
+                        if outputs.logprobs is not None:
+                            log_offset = ids_offset - start_ids_offset
+                            out.logprobs = outputs.logprobs[log_offset:]
+                        if outputs.last_hidden_state is not None:
+                            out.last_hidden_state = outputs.last_hidden_state
+                            if hit_stop_token:
+                                out.last_hidden_state = \
+                                    out.last_hidden_state[:-hit_stop_token]
+                        if outputs.logits is not None:
+                            out.logits = outputs.logits
+                            if hit_stop_token:
+                                out.logits = out.logits[:-hit_stop_token]
 
-                    if hit_stop_word:
-                        finish_reason = 'stop'
-                        break  # will invoke GeneratorExit and cancel in turbomind
+                        yield out
 
-                # end of generator loop
+                        if hit_stop_word:
+                            finish_reason = 'stop'
+                            break  # will invoke GeneratorExit and cancel in turbomind
+
+                    # end of generator loop
+                    cost_time = (time.time() - start_time) * 1000
+                    if not is_error(outputs.status):
+                        if gen_len >= gen_config.max_new_tokens:
+                            finish_reason = 'length'
+                        # utf-8 char at the end means it's a potential unfinished
+                        # byte sequence
+                        if not response.endswith('�'):
+                            # avoid returning the last response twice
+                            response = ''
+                        # logger.info(f'session {session_id} finished, reason '
+                        #             f'"{finish_reason}", input_tokens '
+                        #             f'{len(input_ids)}, output_tokens {gen_len}')
+                        yield GenOut(response,
+                                     self.id2step[session_id],
+                                     len(input_ids),
+                                     gen_len,
+                                     finish_reason,
+                                     token_ids=[],
+                                     cache_block_ids=outputs.cache_block_ids,
+                                     cost_time=cost_time)
+                    else:
+                        logger.error(f'session {session_id} finished, '
+                                     'reason "error"')
+                        yield GenOut(response='internal error happened',
+                                     history_token_len=self.id2step[session_id],
+                                     input_token_len=len(input_ids),
+                                     generate_token_len=0,
+                                     finish_reason='error',
+                                     token_ids=[],
+                                     cost_time=cost_time)
+            except (Exception, asyncio.CancelledError, GeneratorExit) as e:  # noqa
+                # Handle exceptions from safe_run
                 cost_time = (time.time() - start_time) * 1000
-                if not is_error(outputs.status):
-                    if gen_len >= gen_config.max_new_tokens:
-                        finish_reason = 'length'
-                    # utf-8 char at the end means it's a potential unfinished
-                    # byte sequence
-                    if not response.endswith('�'):
-                        # avoid returning the last response twice
-                        response = ''
-                    # logger.info(f'session {session_id} finished, reason '
-                    #             f'"{finish_reason}", input_tokens '
-                    #             f'{len(input_ids)}, output_tokens {gen_len}')
-                    yield GenOut(response,
-                                 self.id2step[session_id],
-                                 len(input_ids),
-                                 gen_len,
-                                 finish_reason,
-                                 token_ids=[],
-                                 cache_block_ids=outputs.cache_block_ids,
-                                 cost_time=cost_time)
-                else:
-                    logger.error(f'session {session_id} finished, '
-                                 'reason "error"')
-                    yield GenOut(response='internal error happened',
-                                 history_token_len=self.id2step[session_id],
-                                 input_token_len=len(input_ids),
-                                 generate_token_len=0,
-                                 finish_reason='error',
-                                 token_ids=[],
-                                 cost_time=cost_time)
+                error_msg = f'internal error happened for traceid: {traceid} ({type(e).__name__}: {str(e)})'
+                logger.error(f'traceid: {traceid}, session_id: {session_id}, {error_msg}')
+                yield GenOut(response=error_msg,
+                             history_token_len=self.id2step[session_id],
+                             input_token_len=len(input_ids),
+                             generate_token_len=0,
+                             finish_reason='error',
+                             token_ids=[],
+                             cost_time=cost_time)
+                # Set gen_len to 0 for error case to ensure proper cleanup
+                gen_len = 0
+                output_len = 0
+                finish_reason = 'error'
+
 
             # update step
             if sequence_end:

@@ -154,7 +154,7 @@ IMG_llvm:
         -e AIS_LOGIN_EMAIL=${AIS_LOGIN_EMAIL} -e AIS_LOGIN_TOKEN=${AIS_LOGIN_TOKEN} \
         -e ONELLM_TEST_API=${ONELLM_TEST_API} \
         -v /data/public_models:/workspace/mnt ${IMAGE_TAG_NAME} \
-        bash -c "pytest -vv -s -rsE tests/test_lmdeploy/ --junit-xml=/workspace/test-results.xml" || EXIT_CODE=$?
+        bash -c "python3 -m pip install pytest-asyncio && pytest -vv -s -rsE tests/test_lmdeploy/ --junit-xml=/workspace/test-results.xml" || EXIT_CODE=$?
       docker cp ${CONTAINER_NAME}:/workspace/test-results.xml ${CI_PROJECT_DIR}/ || true
       echo "After docker run&cp, listing $CI_PROJECT_DIR:"
       ls -la ${CI_PROJECT_DIR}
