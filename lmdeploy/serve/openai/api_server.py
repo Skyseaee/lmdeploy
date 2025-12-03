@@ -128,17 +128,17 @@ def create_error_response(status: HTTPStatus, message: str, error_type='invalid_
 async def check_request(request) -> Optional[JSONResponse]:
     """Check if a request is valid."""
     if hasattr(request, 'model') and request.model not in get_model_list():
-        return create_error_response(HTTPStatus.NOT_FOUND, f'The model `{request.model}` does not exist.')
+        return create_error_response(HTTPStatus.NOT_FOUND, f'The model {request.model!r} does not exist.')
     if hasattr(request, 'n') and request.n <= 0:
-        return create_error_response(HTTPStatus.BAD_REQUEST, f'The n `{request.n}` must be a positive int.')
+        return create_error_response(HTTPStatus.BAD_REQUEST, f'The n {request.n!r} must be a positive int.')
     if hasattr(request, 'top_p') and not (request.top_p > 0 and request.top_p <= 1):
-        return create_error_response(HTTPStatus.BAD_REQUEST, f'The top_p `{request.top_p}` must be in (0, 1].')
+        return create_error_response(HTTPStatus.BAD_REQUEST, f'The top_p {request.top_p!r} must be in (0, 1].')
     if hasattr(request, 'top_k') and request.top_k < 0:
         return create_error_response(HTTPStatus.BAD_REQUEST,
-                                     f'The top_k `{request.top_k}` cannot be a negative integer.')
+                                     f'The top_k {request.top_k!r} cannot be a negative integer.')
     if hasattr(request, 'temperature') and not (request.temperature <= 2 and request.temperature >= 0):
         return create_error_response(HTTPStatus.BAD_REQUEST,
-                                     f'The temperature `{request.temperature}` must be in [0, 2]')
+                                     f'The temperature {request.temperature!r} must be in [0, 2]')
     return
 
 
@@ -313,8 +313,8 @@ async def chat_completions_v1(raw_request: Request = None):
         1.0 means no penalty
     - stop (str | List[str] | None): To stop generating further
         tokens. Only accept stop words that's encoded to one token idex.
-    - response_format (Dict | None): Only pytorch backend support formatting
-        response. Examples: `{"type": "json_schema", "json_schema": {"name":
+    - response_format (Dict | None): To generate response according to given
+        schema. Examples: `{"type": "json_schema", "json_schema": {"name":
         "test","schema": {"properties": {"name": {"type": "string"}},
         "required": ["name"], "type": "object"}}}`
         or `{"type": "regex_schema", "regex_schema": "call me [A-Za-z]{1,10}"}`
@@ -364,7 +364,7 @@ async def chat_completions_v1(raw_request: Request = None):
     if error_check_ret is not None:
         return error_check_ret
     if VariableInterface.async_engine.id2step.get(request.session_id, 0) != 0:
-        return create_error_response(HTTPStatus.BAD_REQUEST, f'The session_id `{request.session_id}` is occupied.')
+        return create_error_response(HTTPStatus.BAD_REQUEST, f'The session_id {request.session_id!r} is occupied.')
 
     model_name = request.model
     adapter_name = None
@@ -381,8 +381,6 @@ async def chat_completions_v1(raw_request: Request = None):
         gen_logprobs = request.top_logprobs
     response_format = None
     if request.response_format and request.response_format.type != 'text':
-        if VariableInterface.async_engine.backend != 'pytorch':
-            return create_error_response(HTTPStatus.BAD_REQUEST, 'only pytorch backend can use response_format now')
         response_format = request.response_format.model_dump()
 
     if request.logit_bias is not None:
@@ -581,7 +579,7 @@ async def chat_completions_v1(raw_request: Request = None):
     tool_calls = None
     reasoning_content = None
     if request.tool_choice != 'none' and VariableInterface.tool_parser is not None:
-        try:  # TODO add json_schema guidance to turbomind
+        try:
             tool_call_info = VariableInterface.tool_parser.extract_tool_calls(text, request=request)
             text, tool_calls = tool_call_info.content, tool_call_info.tool_calls
             if isinstance(tool_calls, List) and len(tool_calls):
@@ -700,7 +698,7 @@ async def completions_v1(raw_request: Request = None):
     if error_check_ret is not None:
         return error_check_ret
     if VariableInterface.async_engine.id2step.get(request.session_id, 0) != 0:
-        return create_error_response(HTTPStatus.BAD_REQUEST, f'The session_id `{request.session_id}` is occupied.')
+        return create_error_response(HTTPStatus.BAD_REQUEST, f'The session_id {request.session_id!r} is occupied.')
 
     model_name = request.model
     adapter_name = None
@@ -1467,8 +1465,12 @@ def serve(model_path: str,
         )
 
     # set the maximum number of concurrent requests
-    if max_concurrent_requests is not None:
-        app.add_middleware(ConcurrencyLimitMiddleware, max_concurrent_requests=max_concurrent_requests)
+    if max_concurrent_requests is None:
+        # Use max_batch_size from backend_config directly (multiplier=2.5)
+        max_batch_size = VariableInterface.async_engine.backend_config.max_batch_size
+        max_concurrent_requests = int(max_batch_size * 2.5)
+        logger.info(f'Auto-set max_concurrent_requests to {max_concurrent_requests} (max_batch_size={max_batch_size})')
+    app.add_middleware(ConcurrencyLimitMiddleware, max_concurrent_requests=max_concurrent_requests)
 
     if proxy_url is not None:
         VariableInterface.proxy_url = proxy_url

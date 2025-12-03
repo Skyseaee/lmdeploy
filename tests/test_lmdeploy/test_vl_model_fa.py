@@ -15,8 +15,13 @@ try:
     from parameterized import parameterized_class
 except ImportError:
     import sys
-    os.system(f"{sys.executable} -m pip install parameterized==0.9.0")
-    os.system(f"{sys.executable} -m pip uninstall -y flash_attn")
+    import subprocess
+    # Install parameterized, ignore errors if already installed
+    subprocess.run([sys.executable, "-m", "pip", "install", "parameterized==0.9.0"],
+                  capture_output=True, check=False)
+    # Uninstall flash_attn, ignore errors if not installed (this is safe to fail)
+    subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "flash_attn"],
+                  capture_output=True, check=False)
     try:
         from parameterized import parameterized_class
     except ImportError:
@@ -28,7 +33,7 @@ AIP_MODEL_DIR = os.environ.get("AIP_MODEL_DIR", "/workspace/mnt")
 
 def init_params(model_dir):
     model_list = {
-        "compassllvm-v1.6": f"{model_dir}/mllm-1.6.0/",
+        "compassllvm-v1.6": f"{model_dir}/compassvl-1.6.0/",
         # "qwen2.5vl-7b": f"{model_dir}/Qwen2.5-VL-7B-Instruct/"
     }
     
@@ -50,7 +55,9 @@ def init_params(model_dir):
 class TestMLLMFAModel(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        os.system(f"{sys.executable} -m pip install flash_attn==2.8.0.post2")
+        # Use --no-build-isolation to allow pip to use torch from current environment
+        # flash_attn build requires torch, but pip's isolated build env doesn't have it
+        os.system(f"{sys.executable} -m pip install --no-build-isolation flash_attn==2.8.0.post2")
         return super().setUpClass()
     @classmethod
     def tearDownClass(cls):

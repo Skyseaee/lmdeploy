@@ -39,6 +39,9 @@ logger = get_logger('lmdeploy')
 lmdeploy_dir = osp.split(lmdeploy.__file__)[0]
 sys.path.append(osp.join(lmdeploy_dir, 'lib'))
 import _turbomind as _tm  # noqa: E402
+import _xgrammar as _xgr  # noqa: E402
+
+from .tokenizer_info import TokenizerInfo  # noqa: E402
 
 
 MAX_LOGPROBS = 1024
@@ -722,6 +725,41 @@ class TurboMindInstance:
                                                 input_embeddings=input_embeddings,
                                                 input_embedding_ranges=input_embedding_ranges,
                                                 gen_config=gen_config)
+
+        if gen_config.response_format is not None:
+            tokenizer = self.tm_model.tokenizer
+            vocab_size = self.tm_model.config.model_config.vocab_size
+
+            try:
+                tokenizer_info = TokenizerInfo.from_huggingface(tokenizer.model.model, vocab_size=vocab_size)
+                decode_grammar_type = gen_config.response_format['type']
+                if decode_grammar_type == 'json_schema':
+                    decode_grammar = gen_config.response_format[decode_grammar_type]['schema']
+                elif decode_grammar_type == 'regex_schema':
+                    decode_grammar = gen_config.response_format[decode_grammar_type]
+                elif decode_grammar_type == 'json_object':
+                    decode_grammar = '{"type" : "object", "additionalProperties": true}'
+
+                compiler = _xgr.GrammarCompiler(tokenizer_info)
+
+                if decode_grammar_type == 'json_schema':
+                    decode_grammar = json.dumps(decode_grammar)
+                    grammar = compiler.compile_json_schema(decode_grammar)
+                elif decode_grammar_type == 'regex_schema':
+                    decode_grammar = str(decode_grammar)
+                    grammar = compiler.compile_regex(decode_grammar)
+                elif decode_grammar_type == 'json_object':
+                    decode_grammar = str(decode_grammar)
+                    grammar = compiler.compile_json_schema(decode_grammar)
+                else:
+                    assert False, f'Decode grammar type {decode_grammar_type} should be in ' \
+                                   '["json_schema", "regex_schema", "json_object"]'
+
+                self.model_inst.set_grammar(grammar)
+            except ValueError as e:
+                logger.warning(f'Failed to initialize guided decoding for tokenizer {tokenizer}, '
+                               f'disable guided decoding: {e}')
+                gen_config.response_format = None
 
         session = _tm.SessionParam(id=session_id, step=step, start=sequence_start, end=sequence_end)
 

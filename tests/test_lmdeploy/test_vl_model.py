@@ -27,7 +27,7 @@ AIP_MODEL_DIR = os.environ.get("AIP_MODEL_DIR", "/workspace/mnt")
 def init_params(model_dir):
     model_list = {
        # "compassllvm-v1.6": f"{model_dir}/CompassLLVM_v1_6/",
-        "compassllvm_1.6": f"{model_dir}/mllm-1.6.0/",
+        "compassllvm_1.6": f"{model_dir}/compassvl-1.6.0/",
         "qwen2.5vl-7b": f"{model_dir}/Qwen2.5-VL-7B-Instruct/"
     }
     
