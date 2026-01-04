@@ -27,6 +27,7 @@ struct Sequence {
     UniqueIds block_unique_ids;
 
     int input_length = 0;  // the number of tokens to be processed in each forward iter
+    int local_block_hit = 0;
     bool block_trie_matched = false;
 
     mutable std::vector<int> prompt;

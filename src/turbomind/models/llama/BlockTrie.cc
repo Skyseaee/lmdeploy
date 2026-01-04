@@ -55,20 +55,6 @@ std::tuple<BlockIds, UniqueIds> BlockTrie::Match(Sequence& seq)
         num_matched += block_seq_len_;
     }
 
-    // query cache metrics data
-    int total_blocks_needed = seq.prompt.size() / block_seq_len_;
-
-    int num_hits = static_cast<int>(matched_blocks.size());
-    FT_CHECK(num_hits <= total_blocks_needed);
-
-    if (seq.block_trie_matched) {
-        total_blocks_needed = 0; // no need to match more
-        num_hits -= seq.cache_len / block_seq_len_;
-    } else {
-        seq.block_trie_matched = true;
-    }
-
-    query(num_hits, total_blocks_needed);
     return std::make_tuple(matched_blocks, matched_unique_ids);
 }
 

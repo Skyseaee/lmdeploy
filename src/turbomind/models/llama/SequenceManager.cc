@@ -451,6 +451,7 @@ void SequenceManager::PrefixMatch(Sequences& sequences)
 
         FT_CHECK(seq.blocks.empty());
         seq.cache_len = valid * block_seq_len_;
+        seq.local_block_hit = valid;
         seq.blocks.insert(seq.blocks.end(), block_ids.begin(), block_ids.end());
         seq.block_unique_ids.insert(seq.block_unique_ids.end(), unique_ids.begin(), unique_ids.end());
         if (rank_ == 0) {
@@ -567,6 +568,11 @@ auto SequenceManager::Materialize(Sequences                    sequences,
     //              block_manager_->free_count());
     if (block_trie_) {
         block_trie_->Verify();
+        for (const auto& p: sequences) {
+            if (p->status == Sequence::kActive && !p->prompt.empty()) {
+                block_trie_->query(p->local_block_hit, p->prompt.size() / block_seq_len_);
+            }
+        }
     }
 
     return outcome;
