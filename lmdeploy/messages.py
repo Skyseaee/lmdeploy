@@ -399,6 +399,7 @@ class ResponseType(enum.Enum):
 
     SUCCESS = enum.auto()
     FINISH = enum.auto()
+    CANCEL = enum.auto()
     ENGINE_STOP_ERROR = enum.auto()
     SESSION_REPEAT = enum.auto()
     SESSION_NOT_EXIST = enum.auto()
